@@ -33,7 +33,9 @@ La base de datos SQLite se crea automáticamente en la carpeta /db al iniciar la
 
 ## Inicialización de la base de datos
 
-La primera vez que se ejecuta el proyecto, es necesario crear las tablas iniciales. Para ello, acceder desde el navegador a:
+La primera vez que se ejecuta el proyecto, es necesario crear las tablas iniciales.
+
+Para ello, acceder desde el navegador a:
 
     http://localhost/securedesk-dam/public/init_db.php
 
