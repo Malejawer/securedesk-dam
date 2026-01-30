@@ -40,7 +40,7 @@ switch ($page) {
     default:
         $title = 'Home - SecureDesk DAM';
         ob_start();
-        require __DIR__ . '/../views/home.php'; // aquí puedes usar $status dentro
+        require __DIR__ . '/../views/home.php';
         $content = ob_get_clean();
         break;
 }
