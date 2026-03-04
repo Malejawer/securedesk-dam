@@ -2,6 +2,7 @@
 declare(strict_types=1);
  
 require_once __DIR__ . '/../services/AuthService.php';
+require_once __DIR__ . '/audit.php';
  
 /**
  * Devuelve el usuario actual de sesión o null.
@@ -20,7 +21,7 @@ function isLoggedIn(): bool
 }
  
 /**
- * Protege páginas privadas: si no hay sesión → login.
+ * Protege páginas privadas: si no hay login, redirige al login.
  */
 function requireAuth(): void
 {
@@ -31,14 +32,16 @@ function requireAuth(): void
 }
  
 /**
- * Comprueba si el usuario tiene uno de los roles permitidos.
+ * Protege rutas por rol.
  */
-function requireRole(array $allowedRoles): void
+function requireRole(array $roles): void
 {
     requireAuth();
  
     $user = currentUser();
-    if (!$user || !in_array($user['role'], $allowedRoles, true)) {
+    $role = $user['role'] ?? null;
+ 
+    if (!$role || !in_array($role, $roles, true)) {
         setFlash('danger', 'No tienes permisos para acceder a esta sección.');
         header('Location: ?page=home');
         exit;
@@ -46,7 +49,7 @@ function requireRole(array $allowedRoles): void
 }
  
 /**
- * Comprueba si el usuario es admin.
+ * Atajo: solo admin.
  */
 function requireAdmin(): void
 {
@@ -54,37 +57,28 @@ function requireAdmin(): void
 }
  
 /**
- * Guarda un mensaje flash en sesión.
+ * Flash messages (Bootstrap).
  */
 function setFlash(string $type, string $message): void
 {
     $_SESSION['flash'] = [
-        'type' => $type,     // success | danger | warning | info
+        'type' => $type,
         'message' => $message
     ];
 }
  
-/**
- * Obtiene y elimina el mensaje flash.
- */
 function getFlash(): ?array
 {
-    if (!isset($_SESSION['flash'])) {
-        return null;
-    }
- 
-    $flash = $_SESSION['flash'];
+    $flash = $_SESSION['flash'] ?? null;
     unset($_SESSION['flash']);
     return $flash;
 }
  
 /**
- * Cierra sesión.
+ * Logout seguro.
  */
 function logout(): void
 {
-    $_SESSION = [];
- 
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
         setcookie(
@@ -130,6 +124,9 @@ function handleLogin(QueryBuilder $qb): array
             'username' => $result['user']['username'],
             'role' => $result['user']['role'],
         ];
+ 
+        // Auditoría: login correcto
+        audit_log($qb, (int)$result['user']['id'], 'auth.login', 'users', (int)$result['user']['id'], 'Login correcto');
  
         header('Location: ?page=home');
         exit;

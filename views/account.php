@@ -88,7 +88,7 @@ $roleBadgeClass = match ($role) {
             </div>
         </div>
     </div>
- 
+
     <!-- Acciones / Info -->
     <div class="col-12 col-lg-6">
         <div class="card shadow-sm border-0">
@@ -118,5 +118,27 @@ $roleBadgeClass = match ($role) {
             </div>
         </div>
     </div>
+
+    <?php
+    $user = currentUser();
+    $role = (string)($user['role'] ?? '');
+    ?>
+
+    <?php if ($role === 'admin'): ?>
+        <div class="card shadow-sm border-0 mt-4">
+            <div class="card-body">
+                <h5 class="fw-bold mb-3">Administración del sistema</h5>
+                <p class="text-muted">
+                    Desde aquí puedes actualizar o crear las tablas de la base de datos.
+                </p>
+
+                <a href="?page=db_update"
+                class="btn btn-warning"
+                onclick="return confirm('¿Seguro que deseas actualizar/verificar la base de datos?');">
+                    Actualizar / Crear Base de Datos
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 </div>
  

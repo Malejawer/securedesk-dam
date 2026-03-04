@@ -50,11 +50,105 @@ function db_init(PDO $pdo): array
     $messages[] = "✅ Tabla tickets creada/verificada";
  
     // -------------------------
+    // Tabla ticket_attachments (adjuntos)
+    // -------------------------
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ticket_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+ 
+            stored_name TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+ 
+            uploaded_by INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+ 
+            FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+            FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+    ");
+    $messages[] = "✅ Tabla ticket_attachments creada/verificada";
+ 
+    // -------------------------
+    // Tabla ticket_comments (comentarios)
+    // -------------------------
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ticket_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            comment TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+ 
+            FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    ");
+    $messages[] = "✅ Tabla ticket_comments creada/verificada";
+ 
+    // -------------------------
+    // Tabla ticket_changes (historial cambios críticos)
+    // -------------------------
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ticket_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+ 
+            field TEXT NOT NULL,         -- status | priority | assigned_to
+            old_value TEXT,
+            new_value TEXT,
+ 
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+ 
+            FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    ");
+    $messages[] = "✅ Tabla ticket_changes creada/verificada";
+ 
+    // -------------------------
+    // Tabla audit_logs (auditoría)
+    // -------------------------
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            entity TEXT,
+            entity_id INTEGER,
+            details TEXT,
+            ip TEXT,
+            origin TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+ 
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+    ");
+    $messages[] = "✅ Tabla audit_logs creada/verificada";
+ 
+    // -------------------------
     // Índices útiles
     // -------------------------
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_tickets_created_by ON tickets(created_by);");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);");
+ 
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_id ON ticket_attachments(ticket_id);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_attachments_uploaded_by ON ticket_attachments(uploaded_by);");
+ 
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_comments_ticket_id ON ticket_comments(ticket_id);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_comments_user_id ON ticket_comments(user_id);");
+ 
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_changes_ticket_id ON ticket_changes(ticket_id);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_changes_user_id ON ticket_changes(user_id);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_ticket_changes_created_at ON ticket_changes(created_at);");
+ 
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity);");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);");
  
     $messages[] = "✅ Índices creados/verificados";
  
