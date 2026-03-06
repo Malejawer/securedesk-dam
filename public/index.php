@@ -66,7 +66,7 @@ switch ($page) {
         $oldUsername = $data['oldUsername'];
  
         ob_start();
-        require __DIR__ . '/../views/login.php';
+        require __DIR__ . '/../views/login_view.php';
         $content = ob_get_clean();
         break;
  
@@ -85,7 +85,7 @@ switch ($page) {
         requireAuth();
         $title = 'Home - SecureDesk DAM';
         ob_start();
-        require __DIR__ . '/../views/home.php';
+        require __DIR__ . '/../views/home_view.php';
         $content = ob_get_clean();
         break;
  
@@ -137,7 +137,7 @@ switch ($page) {
         $tickets = $stmt->fetchAll(PDO::FETCH_ASSOC);
  
         ob_start();
-        require __DIR__ . '/../views/tickets.php';
+        require __DIR__ . '/../views/tickets_view.php';
         $content = ob_get_clean();
         break;
  
@@ -235,7 +235,7 @@ switch ($page) {
         }
  
         ob_start();
-        require __DIR__ . '/../views/ticket_new.php';
+        require __DIR__ . '/../views/ticket_new_view.php';
         $content = ob_get_clean();
         break;
  
@@ -476,7 +476,7 @@ switch ($page) {
         $title = 'Ticket #' . $ticketId . ' - SecureDesk DAM';
  
         ob_start();
-        require __DIR__ . '/../views/ticket_detail.php';
+        require __DIR__ . '/../views/ticket_detail_view.php';
         $content = ob_get_clean();
         break;
  
@@ -753,7 +753,7 @@ switch ($page) {
         unset($r);
 
         ob_start();
-        require __DIR__ . '/../views/audit.php';
+        require __DIR__ . '/../views/audit_view.php';
         $content = ob_get_clean();
         break;
 
@@ -767,7 +767,7 @@ switch ($page) {
         requireAuth();
         $title = 'Mi cuenta - SecureDesk DAM';
         ob_start();
-        require __DIR__ . '/../views/account.php';
+        require __DIR__ . '/../views/account_view.php';
         $content = ob_get_clean();
         break;
  
@@ -776,4 +776,4 @@ switch ($page) {
         exit;
 }
  
-require __DIR__ . '/../views/layout.php';
+require __DIR__ . '/../views/layout_view.php';
