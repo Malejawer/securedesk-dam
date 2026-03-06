@@ -20,6 +20,7 @@
         <?php endif; ?>
 
         <form method="POST" action="?page=ticket_new" class="row g-3">
+            <?= csrf_field() ?>
 
             <div class="col-12">
                 <label class="form-label">Título <span class="text-danger">*</span></label>

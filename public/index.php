@@ -165,6 +165,13 @@ switch ($page) {
         ];
  
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // CSRF
+            if (!csrf_validate($_POST['csrf_token'] ?? '')) {
+                setFlash('danger', 'Token CSRF inválido. Recarga la página e inténtalo de nuevo.');
+                header('Location: ?page=ticket_new');
+                exit;
+            }
+
             $old['title'] = trim($_POST['title'] ?? '');
             $old['description'] = trim($_POST['description'] ?? '');
             $old['category'] = trim($_POST['category'] ?? '');
@@ -320,6 +327,13 @@ switch ($page) {
         $errors = [];
  
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // CSRF
+            if (!csrf_validate($_POST['csrf_token'] ?? '')) {
+                setFlash('danger', 'Token CSRF inválido. Recarga la página e inténtalo de nuevo.');
+                header('Location: ?page=ticket&id=' . $ticketId);
+                exit;
+            }
+
             if (!$canEdit) {
                 setFlash('danger', 'No tienes permisos para editar este ticket.');
                 header('Location: ?page=ticket&id=' . $ticketId);
@@ -474,6 +488,14 @@ switch ($page) {
             exit;
         }
  
+        // CSRF
+        if (!csrf_validate($_POST['csrf_token'] ?? '')) {
+            setFlash('danger', 'Token CSRF inválido. Recarga la página e inténtalo de nuevo.');
+            $tid = isset($_POST['ticket_id']) && ctype_digit((string)$_POST['ticket_id']) ? (int)$_POST['ticket_id'] : 0;
+            header('Location: ' . ($tid > 0 ? ('?page=ticket&id=' . $tid) : '?page=tickets'));
+            exit;
+        }
+
         $ticketIdRaw = $_POST['ticket_id'] ?? '';
         if (!ctype_digit((string)$ticketIdRaw)) {
             setFlash('danger', 'Ticket no válido.');
@@ -530,6 +552,13 @@ switch ($page) {
             exit;
         }
  
+        if (!csrf_validate($_POST['csrf_token'] ?? '')) {
+            setFlash('danger', 'Token CSRF inválido. Recarga la página e inténtalo de nuevo.');
+            $tid = isset($_POST['ticket_id']) && ctype_digit((string)$_POST['ticket_id']) ? (int)$_POST['ticket_id'] : 0;
+            header('Location: ' . ($tid > 0 ? ('?page=ticket&id=' . $tid) : '?page=tickets'));
+            exit;
+        }
+
         $ticketIdRaw = $_POST['ticket_id'] ?? '';
         if (!ctype_digit((string)$ticketIdRaw)) {
             setFlash('danger', 'Ticket no válido.');
@@ -651,6 +680,83 @@ switch ($page) {
         readfile($path);
         exit;
  
+    case 'audit':
+        requireAdmin();
+
+        $title = 'Auditoría - SecureDesk DAM';
+
+        // Filtros básicos
+        $filterUserId = null;
+        $filterAction = null;
+
+        $userIdRaw = $_GET['user_id'] ?? '';
+        if ($userIdRaw !== '' && ctype_digit((string)$userIdRaw)) {
+            $filterUserId = (int)$userIdRaw;
+        }
+
+        $actionRaw = trim((string)($_GET['action'] ?? ''));
+        if ($actionRaw !== '') {
+            $filterAction = mb_substr($actionRaw, 0, 120);
+        }
+
+        // Usuarios para filtro (QueryBuilder)
+        $users = $qb->table('users')
+            ->select(['id', 'username'])
+            ->orderBy('username', 'ASC')
+            ->get();
+
+        // Acciones distintas para filtro
+        $stmt = $db->prepare("SELECT DISTINCT action FROM audit_logs ORDER BY action ASC");
+        $stmt->execute();
+        $actions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Logs (QueryBuilder)
+        $q = $qb->table('audit_logs')
+            ->select(['id','created_at','user_id','action','entity','entity_id','details'])
+            ->orderBy('created_at', 'DESC');
+
+        if ($filterUserId !== null) {
+            $q->where('user_id', '=', $filterUserId);
+        }
+        if ($filterAction !== null) {
+            $q->where('action', '=', $filterAction);
+        }
+
+        // Limitar salida
+        $logs = $q->limit(300)->get();
+
+        // Enriquecer con username sin JOIN (manteniendo QueryBuilder)
+        $userIds = [];
+        foreach ($logs as $r) {
+            if (isset($r['user_id']) && $r['user_id'] !== null && $r['user_id'] !== '') {
+                $uid = (int)$r['user_id'];
+                if ($uid > 0) $userIds[$uid] = true;
+            }
+        }
+
+        $userMap = [];
+        if (!empty($userIds)) {
+            $rows = $qb->table('users')
+                ->select(['id','username'])
+                ->whereIn('id', array_keys($userIds))
+                ->get();
+
+            foreach ($rows as $u) {
+                $userMap[(int)$u['id']] = (string)$u['username'];
+            }
+        }
+
+        foreach ($logs as &$r) {
+            $uid = isset($r['user_id']) ? (int)$r['user_id'] : 0;
+            $r['username'] = $uid > 0 ? ($userMap[$uid] ?? 'Usuario eliminado') : '—';
+        }
+        unset($r);
+
+        ob_start();
+        require __DIR__ . '/../views/audit.php';
+        $content = ob_get_clean();
+        break;
+
     case 'users':
         requireAdmin();
         $title = 'Usuarios - SecureDesk DAM';

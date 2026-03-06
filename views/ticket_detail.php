@@ -2,10 +2,10 @@
 $user = currentUser();
 $role = (string)($user['role'] ?? '');
 $canEdit = in_array($role, ['admin', 'tecnico'], true);
- 
+
 $allowedStatus = ['nuevo','en_proceso','resuelto'];
 $allowedPriority = ['baja','media','alta','critica'];
- 
+
 function formatBytes(int $bytes): string
 {
     if ($bytes < 1024) return $bytes . ' B';
@@ -16,7 +16,7 @@ function formatBytes(int $bytes): string
     $gb = $mb / 1024;
     return number_format($gb, 1) . ' GB';
 }
- 
+
 $attachments = $attachments ?? [];
 $comments = $comments ?? [];
 
@@ -25,11 +25,13 @@ $formatValue = function (string $value): string {
     return ucfirst($value);
 };
 
-$ticket['status'] = $formatValue($ticket['status']);
-$ticket['priority'] = $formatValue($ticket['priority']);
+$ticketStatusRaw = (string)($ticket['status'] ?? '');
+$ticketPriorityRaw = (string)($ticket['priority'] ?? '');
+$statusLabel = $formatValue($ticketStatusRaw);
+$priorityLabel = $formatValue($ticketPriorityRaw);
 
 ?>
- 
+
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
         <h1 class="h3 fw-bold mb-1">Ticket #<?= (int)$ticket['id'] ?></h1>
@@ -37,85 +39,87 @@ $ticket['priority'] = $formatValue($ticket['priority']);
             <?= htmlspecialchars($ticket['title'] ?? '', ENT_QUOTES, 'UTF-8') ?>
         </div>
     </div>
- 
+
     <a href="?page=tickets" class="btn btn-outline-secondary">Volver</a>
 </div>
- 
+
 <!-- Información + Edición -->
 <div class="row g-4">
     <div class="col-12 col-lg-5">
         <div class="card shadow-sm border-0">
             <div class="card-body p-4">
- 
+
                 <div class="mb-3">
                     <div class="text-muted small">Creado por</div>
                     <div class="fw-semibold"><?= htmlspecialchars($ticket['created_username'] ?? '—') ?></div>
                 </div>
- 
+
                 <div class="mb-3">
                     <div class="text-muted small">Asignado</div>
                     <div class="fw-semibold"><?= htmlspecialchars($ticket['assigned_username'] ?? '—') ?></div>
                 </div>
- 
+
                 <div class="mb-3">
                     <div class="text-muted small">Estado</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['status'] ?? '') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($statusLabel ?? '') ?></div>
                 </div>
- 
+
                 <div class="mb-3">
                     <div class="text-muted small">Prioridad</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['priority'] ?? '') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($priorityLabel ?? '') ?></div>
                 </div>
- 
+
                 <div class="mb-3">
                     <div class="text-muted small">Creado el</div>
                     <div class="fw-semibold"><?= htmlspecialchars($ticket['created_at'] ?? '') ?></div>
                 </div>
- 
+
                 <div>
                     <div class="text-muted small">Actualizado el</div>
                     <div class="fw-semibold"><?= htmlspecialchars($ticket['updated_at'] ?? '—') ?></div>
                 </div>
- 
+
             </div>
         </div>
     </div>
- 
+
     <div class="col-12 col-lg-7">
         <div class="card shadow-sm border-0">
             <div class="card-body p-4">
- 
+
                 <h2 class="h5 fw-bold mb-3">Detalle</h2>
- 
+
                 <?php if ($canEdit): ?>
                     <form method="POST" action="?page=ticket&id=<?= (int)$ticket['id'] ?>" class="row g-3">
+                        <?= csrf_field() ?>
+
                         <div class="col-12">
                             <label class="form-label">Descripción</label>
                             <textarea name="description" class="form-control" rows="5"><?= htmlspecialchars($ticket['description'] ?? '') ?></textarea>
                         </div>
- 
+
                         <div class="col-md-4">
                             <label class="form-label">Estado</label>
-                            <select name="status" class="form-select">
+                            <select name="status" class="form-select" required>
                                 <?php foreach ($allowedStatus as $s): ?>
-                                    <option value="<?= $s ?>" <?= (($ticket['status'] ?? '') === $s) ? 'selected' : '' ?>>
+                                    <option value="<?= $s ?>" <?= ($ticketStatusRaw === $s) ? 'selected' : '' ?>>
                                         <?= ucfirst(str_replace('_',' ',$s)) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
- 
+
                         <div class="col-md-4">
                             <label class="form-label">Prioridad</label>
-                            <select name="priority" class="form-select">
+                            <select name="priority" class="form-select" required>
                                 <?php foreach ($allowedPriority as $p): ?>
-                                    <option value="<?= $p ?>" <?= (($ticket['priority'] ?? '') === $p) ? 'selected' : '' ?>>
+                                    <option value="<?= $p ?>" <?= ($ticketPriorityRaw === $p) ? 'selected' : '' ?>>
                                         <?= ucfirst($p) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
- 
+
                         <div class="col-md-4">
                             <label class="form-label">Asignar a</label>
                             <select name="assigned_to" class="form-select">
@@ -128,7 +132,7 @@ $ticket['priority'] = $formatValue($ticket['priority']);
                                 <?php endforeach; ?>
                             </select>
                         </div>
- 
+
                         <div class="col-12">
                             <button class="btn btn-primary">Guardar cambios</button>
                         </div>
@@ -138,17 +142,17 @@ $ticket['priority'] = $formatValue($ticket['priority']);
                         <?= nl2br(htmlspecialchars($ticket['description'] ?? '')) ?>
                     </div>
                 <?php endif; ?>
- 
+
             </div>
         </div>
     </div>
 </div>
- 
+
 <!-- Adjuntos -->
 <div class="card shadow-sm border-0 mt-4">
     <div class="card-body p-4">
         <h2 class="h5 fw-bold mb-3">Adjuntos</h2>
- 
+
         <?php if (empty($attachments)): ?>
             <div class="text-muted">No hay adjuntos en este ticket.</div>
         <?php else: ?>
@@ -180,7 +184,6 @@ $ticket['priority'] = $formatValue($ticket['priority']);
         <?php else: ?>
 
             <?php
-
             $formatValue = function (string $value): string {
                 $value = str_replace('_', ' ', $value);
                 return ucfirst($value);
@@ -247,12 +250,12 @@ $ticket['priority'] = $formatValue($ticket['priority']);
 <!-- ============================= -->
 <!-- COMENTARIOS -->
 <!-- ============================= -->
- 
+
 <div class="card shadow-sm border-0 mt-5">
     <div class="card-body p-4">
- 
+
         <h2 class="h5 fw-bold mb-3">Comentarios</h2>
- 
+
         <?php if (empty($comments)): ?>
             <div class="text-muted mb-3">Todavía no hay comentarios en este ticket.</div>
         <?php else: ?>
@@ -298,9 +301,10 @@ $ticket['priority'] = $formatValue($ticket['priority']);
             <?php endforeach; ?>
         </div>
         <?php endif; ?>
- 
+
         <?php if ($canEdit): ?>
             <form method="POST" action="?page=ticket_comment_add">
+                <?= csrf_field() ?>
                 <input type="hidden" name="ticket_id" value="<?= (int)$ticket['id'] ?>">
 
                 <div class="mb-3">
@@ -316,6 +320,6 @@ $ticket['priority'] = $formatValue($ticket['priority']);
                 Solo Admin y Técnico pueden escribir comentarios.
             </div>
         <?php endif; ?>
-    
+
     </div>
 </div>
