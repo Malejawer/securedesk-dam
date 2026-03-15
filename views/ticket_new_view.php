@@ -19,7 +19,13 @@
             </div>
         <?php endif; ?>
 
-        <form method="POST" action="?page=ticket_new" class="row g-3">
+        <?php if (!empty($errors['attachment'])): ?>
+            <div class="alert alert-warning">
+                <?= htmlspecialchars($errors['attachment'], ENT_QUOTES, 'UTF-8') ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="POST" action="?page=ticket_new" enctype="multipart/form-data" class="row g-3">
             <?= csrf_field() ?>
 
             <div class="col-12">
@@ -81,6 +87,12 @@
                 <?php if (isset($errors['assigned_to'])): ?>
                     <div class="invalid-feedback"><?= htmlspecialchars($errors['assigned_to'], ENT_QUOTES, 'UTF-8') ?></div>
                 <?php endif; ?>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">Adjuntar evidencia (opcional)</label>
+                <input type="file" name="attachment" class="form-control">
+                <div class="form-text">Máx. 10MB. Solo se guarda si el ticket se crea correctamente.</div>
             </div>
 
             <div class="col-12 d-flex gap-2 mt-2">

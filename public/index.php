@@ -227,8 +227,68 @@ switch ($page) {
                 $u = currentUser();
                 $uid = is_array($u) ? (int)($u['id'] ?? 0) : 0;
                 audit_log($qb, $uid > 0 ? $uid : null, 'ticket.create', 'tickets', $newTicketId, 'Título: ' . $old['title']);
+
+                // =========================
+                // Adjunto opcional al crear ticket
+                // =========================
+                $attachmentWarning = null;
+
+                if (isset($_FILES['attachment']) && is_array($_FILES['attachment'])) {
+
+                    $file = $_FILES['attachment'];
+
+                    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+
+                        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                            $attachmentWarning = 'Ticket creado, pero hubo un error subiendo el adjunto.';
+                        } else {
+
+                            $originalName = (string)($file['name'] ?? 'archivo');
+                            $sizeBytes = (int)($file['size'] ?? 0);
+
+                            $maxBytes = 10 * 1024 * 1024; // 10MB
+                            if ($sizeBytes <= 0 || $sizeBytes > $maxBytes) {
+                                $attachmentWarning = 'Ticket creado, pero el adjunto es demasiado grande (máx. 10MB).';
+                            } else {
+
+                                $ext = pathinfo($originalName, PATHINFO_EXTENSION);
+                                $ext = $ext ? ('.' . preg_replace('/[^a-zA-Z0-9]/', '', $ext)) : '';
+
+                                $storedName = bin2hex(random_bytes(16)) . '_' . time() . $ext;
+                                $destPath = $uploadsDir . DIRECTORY_SEPARATOR . $storedName;
+
+                                if (!move_uploaded_file((string)$file['tmp_name'], $destPath)) {
+                                    $attachmentWarning = 'Ticket creado, pero no se pudo guardar el adjunto.';
+                                } else {
+
+                                    $qb->table('ticket_attachments')->insert([
+                                        'ticket_id'     => $newTicketId,
+                                        'stored_name'   => $storedName,
+                                        'original_name' => $originalName,
+                                        'size_bytes'    => $sizeBytes,
+                                        'uploaded_by'   => $currentUserId > 0 ? $currentUserId : null,
+                                    ]);
+
+                                    audit_log(
+                                        $qb,
+                                        $currentUserId > 0 ? $currentUserId : null,
+                                        'attachment.upload',
+                                        'tickets',
+                                        $newTicketId,
+                                        'Archivo: ' . $originalName
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
  
-                setFlash('success', 'Ticket creado correctamente.');
+                if ($attachmentWarning !== null) {
+                    setFlash('warning', $attachmentWarning);
+                } else {
+                    setFlash('success', 'Ticket creado correctamente.');
+                }
+
                 header('Location: ?page=tickets');
                 exit;
             }

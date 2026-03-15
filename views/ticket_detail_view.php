@@ -29,7 +29,6 @@ $ticketStatusRaw = (string)($ticket['status'] ?? '');
 $ticketPriorityRaw = (string)($ticket['priority'] ?? '');
 $statusLabel = $formatValue($ticketStatusRaw);
 $priorityLabel = $formatValue($ticketPriorityRaw);
-
 ?>
 
 <div class="d-flex align-items-center justify-content-between mb-4">
@@ -151,15 +150,48 @@ $priorityLabel = $formatValue($ticketPriorityRaw);
 <!-- Adjuntos -->
 <div class="card shadow-sm border-0 mt-4">
     <div class="card-body p-4">
-        <h2 class="h5 fw-bold mb-3">Adjuntos</h2>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <h2 class="h5 fw-bold mb-0">Adjuntos</h2>
+            <?php if ($canEdit): ?>
+                <span class="badge bg-light text-dark border">Solo Admin/Técnico</span>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($canEdit): ?>
+            <!-- ✅ FORMULARIO SUBIDA EVIDENCIA -->
+            <form method="POST"
+                action="?page=attachment_upload"
+                enctype="multipart/form-data"
+                class="row g-2 align-items-center mb-3">
+
+                <?= csrf_field() ?>
+                <input type="hidden" name="ticket_id" value="<?= (int)$ticket['id'] ?>">
+
+                <div class="col-md-9">
+                    <input type="file" name="attachment" class="form-control" required>
+                </div>
+
+                <div class="col-md-3 text-md-end">
+                    <button class="btn btn-primary">
+                        Subir evidencia
+                    </button>
+                </div>
+
+            </form>
+        <?php endif; ?>
 
         <?php if (empty($attachments)): ?>
             <div class="text-muted">No hay adjuntos en este ticket.</div>
         <?php else: ?>
             <ul class="list-group">
                 <?php foreach ($attachments as $a): ?>
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <?= htmlspecialchars($a['original_name']) ?>
+                    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <div class="fw-semibold"><?= htmlspecialchars($a['original_name']) ?></div>
+                            <?php if (isset($a['size_bytes'])): ?>
+                                <div class="text-muted small"><?= htmlspecialchars(formatBytes((int)$a['size_bytes'])) ?></div>
+                            <?php endif; ?>
+                        </div>
                         <a class="btn btn-sm btn-outline-primary"
                            href="?page=attachment_download&id=<?= (int)$a['id'] ?>">
                             Descargar
