@@ -2,6 +2,7 @@
 $user = currentUser();
 $role = (string)($user['role'] ?? '');
 $canEdit = in_array($role, ['admin', 'tecnico'], true);
+$canExport = in_array($role, ['admin', 'tecnico'], true);
 
 $allowedStatus = ['nuevo','en_proceso','resuelto'];
 $allowedPriority = ['baja','media','alta','critica'];
@@ -29,6 +30,15 @@ $ticketStatusRaw = (string)($ticket['status'] ?? '');
 $ticketPriorityRaw = (string)($ticket['priority'] ?? '');
 $statusLabel = $formatValue($ticketStatusRaw);
 $priorityLabel = $formatValue($ticketPriorityRaw);
+
+// URLs de exportación para este ticket
+$baseQs = function(array $extra = []) use ($ticket) {
+    $params = array_merge(['id' => (int)$ticket['id']], $extra);
+    return '?' . http_build_query(array_merge(['page' => 'export_ticket'], $params));
+};
+$csvUrl  = $baseQs(['format' => 'csv']);
+$htmlUrl = $baseQs(['format' => 'html']);
+$pdfUrl  = $baseQs(['format' => 'pdf']);
 ?>
 
 <div class="d-flex align-items-center justify-content-between mb-4">
@@ -39,7 +49,27 @@ $priorityLabel = $formatValue($ticketPriorityRaw);
         </div>
     </div>
 
-    <a href="?page=tickets" class="btn btn-outline-secondary">Volver</a>
+    <div class="d-flex gap-2 align-items-center">
+        <a href="?page=tickets" class="btn btn-outline-secondary">Volver</a>
+
+        <!-- Botones de exportación del ticket -->
+        <?php if ($canExport): ?>
+        <!-- Botones de exportación del ticket -->
+        <div class="btn-group" role="group" aria-label="Exportar ticket">
+            <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
+            class="btn btn-outline-secondary"
+            title="Exportar ticket a HTML">
+                Exportar HTML
+            </a>
+
+            <a href="<?= htmlspecialchars($pdfUrl, ENT_QUOTES, 'UTF-8') ?>"
+            class="btn btn-outline-secondary"
+            title="Exportar ticket a PDF">
+                Exportar PDF
+            </a>
+        </div>
+        <?php endif; ?>
+    </div>
 </div>
 
 <!-- Información + Edición -->
@@ -158,7 +188,6 @@ $priorityLabel = $formatValue($ticketPriorityRaw);
         </div>
 
         <?php if ($canEdit): ?>
-            <!-- ✅ FORMULARIO SUBIDA EVIDENCIA -->
             <form method="POST"
                 action="?page=attachment_upload"
                 enctype="multipart/form-data"
@@ -279,10 +308,7 @@ $priorityLabel = $formatValue($ticketPriorityRaw);
     </div>
 </div>
 
-<!-- ============================= -->
 <!-- COMENTARIOS -->
-<!-- ============================= -->
-
 <div class="card shadow-sm border-0 mt-5">
     <div class="card-body p-4">
 

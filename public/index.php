@@ -8,6 +8,11 @@ require_once __DIR__ . '/../app/services/HealthCheckService.php';
 require_once __DIR__ . '/../app/database/QueryBuilder.php';
 require_once __DIR__ . '/../app/helpers/auth.php';
 require_once __DIR__ . '/../app/helpers/audit.php';
+
+require_once __DIR__ . '/../vendor/dompdf/vendor/autoload.php';
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
  
 $config = require __DIR__ . '/../app/config/config.php';
  
@@ -32,7 +37,7 @@ $uploadsDir = realpath(__DIR__ . '/..') . DIRECTORY_SEPARATOR . 'storage' . DIRE
 if (!is_dir($uploadsDir)) {
     @mkdir($uploadsDir, 0775, true);
 }
- 
+
 switch ($page) {
  
     case 'db_update':
@@ -816,6 +821,370 @@ switch ($page) {
         require __DIR__ . '/../views/audit_view.php';
         $content = ob_get_clean();
         break;
+
+    case 'export':
+        requireRole(['admin', 'tecnico']);
+
+        $format = strtolower(trim((string)($_GET['format'] ?? 'csv')));
+        if (!in_array($format, ['csv','html','pdf'], true)) {
+            setFlash('danger', 'Formato de exportación no soportado.');
+            header('Location: ?page=tickets');
+            exit;
+        }
+
+        // Reutilizamos los mismos filtros que en listado
+        $statusFilter = $_GET['status'] ?? null;
+        $priorityFilter = $_GET['priority'] ?? null;
+
+        $allowedStatus = ['nuevo','en_proceso','resuelto'];
+        $allowedPriority = ['baja','media','alta','critica'];
+
+        $conditions = [];
+        $params = [];
+
+        if ($statusFilter && in_array($statusFilter, $allowedStatus, true)) {
+            $conditions[] = 't.status = :status';
+            $params[':status'] = $statusFilter;
+        }
+
+        if ($priorityFilter && in_array($priorityFilter, $allowedPriority, true)) {
+            $conditions[] = 't.priority = :priority';
+            $params[':priority'] = $priorityFilter;
+        }
+
+        $where = $conditions ? ('WHERE ' . implode(' AND ', $conditions)) : '';
+
+        // Obtener tickets (igual que en tickets)
+        $stmt = $db->prepare("
+            SELECT 
+                t.*,
+                u_assign.username AS assigned_username,
+                u_create.username AS created_username
+            FROM tickets t
+            LEFT JOIN users u_assign ON t.assigned_to = u_assign.id
+            LEFT JOIN users u_create ON t.created_by = u_create.id
+            $where
+            ORDER BY t.created_at DESC
+        ");
+        $stmt->execute($params);
+        $tickets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Auditoría: registrar exportación
+        $u = currentUser();
+        $uid = is_array($u) ? (int)($u['id'] ?? 0) : 0;
+        $actionMap = [
+            'csv' => 'report.export_csv',
+            'html' => 'report.export_html',
+            'pdf' => 'report.export_pdf',
+        ];
+        $action = $actionMap[$format];
+        $details = 'Exportación de tickets; formato=' . strtoupper($format);
+        if (!empty($statusFilter)) $details .= '; status=' . $statusFilter;
+        if (!empty($priorityFilter)) $details .= '; priority=' . $priorityFilter;
+
+        audit_log($qb, $uid > 0 ? $uid : null, $action, 'reports', null, $details);
+
+        // Generar respuesta según formato
+        if ($format === 'csv') {
+            // CSV headers
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="tickets_export_' . date('Ymd_His') . '.csv"');
+
+            $out = fopen('php://output', 'w');
+
+            // Encabezado
+            fputcsv($out, ['ID','Título','Descripción','Estado','Prioridad','Creado por','Asignado a','Creado en','Actualizado en']);
+
+            foreach ($tickets as $t) {
+                fputcsv($out, [
+                    (int)$t['id'],
+                    $t['title'] ?? '',
+                    $t['description'] ?? '',
+                    $t['status'] ?? '',
+                    $t['priority'] ?? '',
+                    $t['created_username'] ?? '',
+                    $t['assigned_username'] ?? '',
+                    $t['created_at'] ?? '',
+                    $t['updated_at'] ?? '',
+                ]);
+            }
+
+            fclose($out);
+            exit;
+        }
+
+        // fallback
+        setFlash('danger', 'Error en la exportación.');
+        header('Location: ?page=tickets');
+        exit;
+    
+    case 'export_ticket':
+        // Exporta el detalle de un único ticket (CSV / HTML / PDF)
+        requireRole(['admin', 'tecnico']);
+
+        // --- Validar id y formato ---
+        $idRaw = $_GET['id'] ?? '';
+        if (!ctype_digit((string)$idRaw)) {
+            setFlash('danger', 'Ticket no válido.');
+            header('Location: ?page=tickets');
+            exit;
+        }
+        $ticketId = (int)$idRaw;
+
+        $format = strtolower(trim((string)($_GET['format'] ?? 'csv')));
+        if (!in_array($format, ['csv','html','pdf'], true)) {
+            setFlash('danger', 'Formato de exportación no soportado.');
+            header('Location: ?page=ticket&id=' . $ticketId);
+            exit;
+        }
+
+        // --- Cargar ticket y relaciones ---
+        $stmt = $db->prepare("
+            SELECT 
+                t.*,
+                u_assign.username AS assigned_username,
+                u_create.username AS created_username
+            FROM tickets t
+            LEFT JOIN users u_assign ON t.assigned_to = u_assign.id
+            LEFT JOIN users u_create ON t.created_by = u_create.id
+            WHERE t.id = :id
+            LIMIT 1
+        ");
+        $stmt->execute([':id' => $ticketId]);
+        $ticket = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$ticket) {
+            setFlash('danger', 'El ticket no existe.');
+            header('Location: ?page=tickets');
+            exit;
+        }
+
+        // Adjuntos
+        $stmt = $db->prepare("
+            SELECT a.*, u.username AS uploaded_username
+            FROM ticket_attachments a
+            LEFT JOIN users u ON a.uploaded_by = u.id
+            WHERE a.ticket_id = :ticket_id
+            ORDER BY a.created_at DESC
+        ");
+        $stmt->execute([':ticket_id' => $ticketId]);
+        $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Comentarios
+        $stmt = $db->prepare("
+            SELECT c.*, u.username AS username
+            FROM ticket_comments c
+            LEFT JOIN users u ON c.user_id = u.id
+            WHERE c.ticket_id = :ticket_id
+            ORDER BY c.created_at ASC
+        ");
+        $stmt->execute([':ticket_id' => $ticketId]);
+        $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Cambios
+        $stmt = $db->prepare("
+            SELECT ch.*, u.username AS username
+            FROM ticket_changes ch
+            LEFT JOIN users u ON ch.user_id = u.id
+            WHERE ch.ticket_id = :ticket_id
+            ORDER BY ch.created_at DESC
+        ");
+        $stmt->execute([':ticket_id' => $ticketId]);
+        $changes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Auditoría
+        $u = currentUser();
+        $uid = is_array($u) ? (int)($u['id'] ?? 0) : 0;
+        $actionMap = [
+            'csv' => 'report.ticket_export_csv',
+            'html' => 'report.ticket_export_html',
+            'pdf' => 'report.ticket_export_pdf',
+        ];
+        $action = $actionMap[$format];
+        $details = 'Exportación ticket; id=' . $ticketId . '; formato=' . strtoupper($format);
+        audit_log($qb, $uid > 0 ? $uid : null, $action, 'tickets', $ticketId, $details);
+
+        // --- Construir HTML completo (usado por HTML y PDF) ---
+        // Escapar todo
+        $generatedBy = htmlspecialchars($u['username'] ?? 'Sistema', ENT_QUOTES, 'UTF-8');
+        $now = date('Y-m-d H:i:s');
+        $t_id = (int)$ticket['id'];
+        $t_title = htmlspecialchars($ticket['title'] ?? '', ENT_QUOTES, 'UTF-8');
+        $t_status = htmlspecialchars($ticket['status'] ?? '', ENT_QUOTES, 'UTF-8');
+        $t_priority = htmlspecialchars($ticket['priority'] ?? '', ENT_QUOTES, 'UTF-8');
+        $t_assigned = htmlspecialchars($ticket['assigned_username'] ?? '—', ENT_QUOTES, 'UTF-8');
+        $t_created_by = htmlspecialchars($ticket['created_username'] ?? '—', ENT_QUOTES, 'UTF-8');
+        $t_created_at = htmlspecialchars($ticket['created_at'] ?? '', ENT_QUOTES, 'UTF-8');
+        $t_updated_at = htmlspecialchars($ticket['updated_at'] ?? '—', ENT_QUOTES, 'UTF-8');
+        $t_description = nl2br(htmlspecialchars($ticket['description'] ?? '', ENT_QUOTES, 'UTF-8'));
+
+        $html = <<<HTML
+    <!doctype html>
+    <html lang="es">
+    <head>
+    <meta charset="utf-8">
+    <title>Informe Ticket #{$t_id}</title>
+    <style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:30px;color:#222}
+        .header{border-bottom:2px solid #333;margin-bottom:20px;padding-bottom:10px}
+        .brand{font-size:22px;font-weight:700}
+        .meta{font-size:13px;color:#555;margin-top:6px}
+        .section{margin-top:18px}
+        .section h2{font-size:16px;border-bottom:1px solid #ddd;padding-bottom:6px}
+        table{border-collapse:collapse;width:100%;margin-top:8px}
+        th,td{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top;font-size:13px}
+        th{background:#f4f4f4}
+        .comment{border:1px solid #eee;padding:10px;margin-bottom:8px;background:#fafafa}
+        .muted{color:#666;font-size:12px}
+    </style>
+    </head>
+    <body>
+    <div class="header">
+        <div class="brand">SecureDesk DAM</div>
+        <div class="meta">
+        <strong>Informe de Ticket:</strong> #{$t_id} &nbsp;&nbsp;
+        <strong>Generado por:</strong> {$generatedBy} &nbsp;&nbsp;
+        <strong>Fecha:</strong> {$now}
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Datos del Ticket</h2>
+        <table>
+        <tr><th>ID</th><td>{$t_id}</td></tr>
+        <tr><th>Título</th><td>{$t_title}</td></tr>
+        <tr><th>Estado</th><td>{$t_status}</td></tr>
+        <tr><th>Prioridad</th><td>{$t_priority}</td></tr>
+        <tr><th>Asignado a</th><td>{$t_assigned}</td></tr>
+        <tr><th>Creado por</th><td>{$t_created_by}</td></tr>
+        <tr><th>Creado en</th><td>{$t_created_at}</td></tr>
+        <tr><th>Última actualización</th><td>{$t_updated_at}</td></tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Descripción</h2>
+        <div>{$t_description}</div>
+    </div>
+    HTML;
+
+        // Adjuntos
+        $html .= '<div class="section"><h2>Adjuntos</h2>';
+        if (empty($attachments)) {
+            $html .= '<div class="muted">No hay adjuntos.</div>';
+        } else {
+            $html .= '<table><thead><tr><th>ID</th><th>Nombre</th><th>Subido por</th><th>Tamaño (bytes)</th><th>Fecha</th></tr></thead><tbody>';
+            foreach ($attachments as $a) {
+                $a_id = (int)($a['id'] ?? 0);
+                $a_name = htmlspecialchars($a['original_name'] ?? '', ENT_QUOTES, 'UTF-8');
+                $a_user = htmlspecialchars($a['uploaded_username'] ?? '', ENT_QUOTES, 'UTF-8');
+                $a_size = (int)($a['size_bytes'] ?? 0);
+                $a_date = htmlspecialchars($a['created_at'] ?? '', ENT_QUOTES, 'UTF-8');
+                $html .= "<tr><td>{$a_id}</td><td>{$a_name}</td><td>{$a_user}</td><td>{$a_size}</td><td>{$a_date}</td></tr>";
+            }
+            $html .= '</tbody></table>';
+        }
+        $html .= '</div>';
+
+        // Comentarios
+        $html .= '<div class="section"><h2>Comentarios</h2>';
+        if (empty($comments)) {
+            $html .= '<div class="muted">No hay comentarios.</div>';
+        } else {
+            foreach ($comments as $c) {
+                $c_id = (int)($c['id'] ?? 0);
+                $c_user = htmlspecialchars($c['username'] ?? 'Usuario', ENT_QUOTES, 'UTF-8');
+                $c_date = htmlspecialchars($c['created_at'] ?? '', ENT_QUOTES, 'UTF-8');
+                $c_text = nl2br(htmlspecialchars($c['comment'] ?? '', ENT_QUOTES, 'UTF-8'));
+                $html .= "<div class=\"comment\"><div style=\"font-weight:700\">{$c_user} <span class=\"muted\">({$c_date})</span></div><div style=\"margin-top:6px\">{$c_text}</div></div>";
+            }
+        }
+        $html .= '</div>';
+
+        // Historial
+        $html .= '<div class="section"><h2>Historial de cambios</h2>';
+        if (empty($changes)) {
+            $html .= '<div class="muted">No hay cambios registrados.</div>';
+        } else {
+            $html .= '<table><thead><tr><th>Fecha</th><th>Usuario</th><th>Campo</th><th>Antes</th><th>Ahora</th></tr></thead><tbody>';
+            foreach ($changes as $ch) {
+                $ch_date = htmlspecialchars($ch['created_at'] ?? '', ENT_QUOTES, 'UTF-8');
+                $ch_user = htmlspecialchars($ch['username'] ?? '', ENT_QUOTES, 'UTF-8');
+                $ch_field = htmlspecialchars($ch['field'] ?? '', ENT_QUOTES, 'UTF-8');
+                $ch_old = htmlspecialchars($ch['old_value'] ?? '', ENT_QUOTES, 'UTF-8');
+                $ch_new = htmlspecialchars($ch['new_value'] ?? '', ENT_QUOTES, 'UTF-8');
+                $html .= "<tr><td>{$ch_date}</td><td>{$ch_user}</td><td>{$ch_field}</td><td>{$ch_old}</td><td>{$ch_new}</td></tr>";
+            }
+            $html .= '</tbody></table>';
+        }
+        $html .= '</div>';
+
+        $html .= '</body></html>';
+
+        // Guardar temporal (útil para depuración)
+        @file_put_contents(sys_get_temp_dir() . DIRECTORY_SEPARATOR . "sdesk_ticket_{$t_id}.html", $html);
+
+        // --- Output según formato ---
+        if ($format === 'html') {
+            header('Content-Type: text/html; charset=utf-8');
+            header('Content-Disposition: attachment; filename="ticket_' . $ticketId . '_export_' . date('Ymd_His') . '.html"');
+            echo $html;
+            exit;
+        }
+
+        if ($format === 'pdf') {
+            // evitar salidas previas
+            while (ob_get_level()) { ob_end_clean(); }
+
+            if (!class_exists(\Dompdf\Dompdf::class)) {
+                // fallback: devolver HTML para que el usuario pueda imprimir
+                header('Content-Type: text/html; charset=utf-8');
+                header('X-Notice: dompdf-not-installed');
+                echo $html;
+                exit;
+            }
+
+            try {
+                $options = new \Dompdf\Options();
+                $options->set('isRemoteEnabled', true);
+                $options->set('isHtml5ParserEnabled', true);
+
+                $dompdf = new \Dompdf\Dompdf($options);
+                $dompdf->setPaper('A4', 'portrait');
+                $dompdf->loadHtml($html, 'UTF-8');
+                $dompdf->render();
+
+                $pdfOutput = $dompdf->output();
+                if ($pdfOutput === false || strlen($pdfOutput) === 0) {
+                    header('Content-Type: text/html; charset=utf-8');
+                    header('X-Notice: dompdf-empty-output');
+                    echo $html;
+                    exit;
+                }
+
+                header('Content-Type: application/pdf');
+                header('Content-Disposition: attachment; filename="ticket_' . $ticketId . '_export_' . date('Ymd_His') . '.pdf"');
+                header('Content-Length: ' . strlen($pdfOutput));
+                echo $pdfOutput;
+                exit;
+
+            } catch (\Throwable $e) {
+                header('Content-Type: text/html; charset=utf-8');
+                header('X-Notice: dompdf-exception');
+                header('X-Error-Message: ' . substr($e->getMessage(), 0, 200));
+                echo "<h2>Error al generar PDF</h2>";
+                echo "<pre>" . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') . "</pre>";
+                echo $html;
+                exit;
+            }
+        }
+
+        // fallback safety (no debería llegar aquí)
+        setFlash('danger', 'Error en la exportación del ticket.');
+        header('Location: ?page=ticket&id=' . $ticketId);
+        exit;
+
+    break;
 
     case 'users':
         requireAdmin();

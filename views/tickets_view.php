@@ -3,21 +3,62 @@ $user = function_exists('currentUser') ? currentUser() : null;
 $role = is_array($user) ? ($user['role'] ?? null) : null;
 $canCreate = in_array($role, ['admin', 'tecnico'], true);
 ?>
- 
+
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
         <h1 class="mb-1">Listado de tickets</h1>
         <div class="text-muted">Filtra por estado y prioridad</div>
     </div>
- 
-    <?php if ($canCreate): ?>
-        <a href="?page=ticket_new" class="btn btn-primary">+ Nuevo ticket</a>
-    <?php endif; ?>
+
+    <div class="d-flex gap-2">
+        <?php
+        // Conservamos filtros actuales para la exportación
+        $filters = [];
+        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
+        if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
+
+        $qs = function(array $extra = []) use ($filters) {
+            $params = array_merge($filters, $extra);
+            if (empty($params)) return '';
+            return '&' . http_build_query($params);
+        };
+
+        $csvUrl  = '?page=export&format=csv'  . $qs();
+        $htmlUrl = '?page=export&format=html' . $qs();
+        $pdfUrl  = '?page=export&format=pdf'  . $qs();
+        ?>
+
+        <?php if ($canCreate): ?>
+            <a href="?page=ticket_new" class="btn btn-primary">+ Nuevo ticket</a>
+        <?php endif; ?>
+
+        <!-- Botones de exportación -->
+
+        <?php
+        $canExport = in_array($role, ['admin', 'tecnico'], true);
+        ?>
+
+        <?php if ($canExport): ?>
+
+        <div class="btn-group" role="group" aria-label="Exportar">
+            <a href="<?= htmlspecialchars($csvUrl, ENT_QUOTES, 'UTF-8') ?>"
+            class="btn btn-outline-secondary">
+                Exportar CSV
+            </a>
+
+            <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
+               class="btn btn-outline-secondary"
+               title="Exportar HTML">
+                Exportar HTML
+            </a>
+        </div>
+        <?php endif; ?>
+    </div>
 </div>
- 
+
 <form method="GET" class="row g-3 mb-4">
     <input type="hidden" name="page" value="tickets">
- 
+
     <div class="col-md-3">
         <label class="form-label">Estado</label>
         <select name="status" class="form-select">
@@ -29,7 +70,7 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
             <?php endforeach; ?>
         </select>
     </div>
- 
+
     <div class="col-md-3">
         <label class="form-label">Prioridad</label>
         <select name="priority" class="form-select">
@@ -41,16 +82,16 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
             <?php endforeach; ?>
         </select>
     </div>
- 
+
     <div class="col-md-2 align-self-end">
         <button class="btn btn-primary w-100">Filtrar</button>
     </div>
- 
+
     <div class="col-md-2 align-self-end">
         <a class="btn btn-outline-secondary w-100" href="?page=tickets">Limpiar</a>
     </div>
 </form>
- 
+
 <div class="card shadow-sm border-0">
     <div class="card-body p-0">
         <table class="table table-hover mb-0">
@@ -66,7 +107,7 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
                 </tr>
             </thead>
             <tbody>
-                <?php if (!$tickets): ?>
+                <?php if (empty($tickets)): ?>
                     <tr>
                         <td colspan="7" class="text-center py-4 text-muted">No hay tickets disponibles</td>
                     </tr>
@@ -86,14 +127,14 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
                             <td>
                                 <?php
                                     $priority = $t['priority'] ?? '';
- 
+
                                     $priorityClasses = [
                                         'baja'    => 'bg-success',
                                         'media'   => 'bg-primary',
                                         'alta'    => 'bg-warning text-dark',
                                         'critica' => 'bg-danger',
                                     ];
- 
+
                                     $class = $priorityClasses[$priority] ?? 'bg-secondary';
                                 ?>
                                 <span class="badge <?= $class ?>">
