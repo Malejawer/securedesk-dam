@@ -2,20 +2,22 @@
 $user = function_exists('currentUser') ? currentUser() : null;
 $role = is_array($user) ? ($user['role'] ?? null) : null;
 $canCreate = in_array($role, ['admin', 'tecnico'], true);
+$searchValue = (string)($_GET['q'] ?? '');
 ?>
 
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
         <h1 class="mb-1">Listado de tickets</h1>
-        <div class="text-muted">Filtra por estado y prioridad</div>
+        <div class="text-muted">Filtra por estado, prioridad, asignación y búsqueda</div>
     </div>
 
     <div class="d-flex gap-2">
         <?php
-        // Conservamos filtros actuales para la exportación
         $filters = [];
         if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
         if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
+        if (!empty($_GET['assigned'])) $filters['assigned'] = $_GET['assigned'];
+        if (!empty($_GET['q'])) $filters['q'] = $_GET['q'];
 
         $qs = function(array $extra = []) use ($filters) {
             $params = array_merge($filters, $extra);
@@ -32,17 +34,14 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
             <a href="?page=ticket_new" class="btn btn-primary">+ Nuevo ticket</a>
         <?php endif; ?>
 
-        <!-- Botones de exportación -->
-
         <?php
         $canExport = in_array($role, ['admin', 'tecnico'], true);
         ?>
 
         <?php if ($canExport): ?>
-
         <div class="btn-group" role="group" aria-label="Exportar">
             <a href="<?= htmlspecialchars($csvUrl, ENT_QUOTES, 'UTF-8') ?>"
-            class="btn btn-outline-secondary">
+               class="btn btn-outline-secondary">
                 Exportar CSV
             </a>
 
@@ -60,6 +59,17 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
     <input type="hidden" name="page" value="tickets">
 
     <div class="col-md-3">
+        <label class="form-label">Buscar</label>
+        <input
+            type="text"
+            name="q"
+            class="form-control"
+            placeholder="Título o descripción"
+            value="<?= htmlspecialchars($searchValue, ENT_QUOTES, 'UTF-8') ?>"
+        >
+    </div>
+
+    <div class="col-md-3">
         <label class="form-label">Estado</label>
         <select name="status" class="form-select">
             <option value="">Todos</option>
@@ -71,7 +81,7 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
         </select>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-2">
         <label class="form-label">Prioridad</label>
         <select name="priority" class="form-select">
             <option value="">Todas</option>
@@ -83,14 +93,33 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
         </select>
     </div>
 
-    <div class="col-md-2 align-self-end">
+    <div class="col-md-2">
+        <label class="form-label">Asignación</label>
+        <select name="assigned" class="form-select">
+            <option value="">Todas</option>
+            <option value="unassigned" <?= (($_GET['assigned'] ?? '') === 'unassigned') ? 'selected' : '' ?>>
+                Sin asignar
+            </option>
+        </select>
+    </div>
+
+    <div class="col-md-1 align-self-end">
         <button class="btn btn-primary w-100">Filtrar</button>
     </div>
 
-    <div class="col-md-2 align-self-end">
+    <div class="col-md-1 align-self-end">
         <a class="btn btn-outline-secondary w-100" href="?page=tickets">Limpiar</a>
     </div>
 </form>
+
+<div class="d-flex gap-2 flex-wrap mb-4">
+    <a href="?page=tickets&priority=critica" class="btn btn-outline-danger btn-sm">
+        Vista rápida: Críticos
+    </a>
+    <a href="?page=tickets&assigned=unassigned" class="btn btn-outline-warning btn-sm">
+        Vista rápida: Sin asignar
+    </a>
+</div>
 
 <div class="card shadow-sm border-0">
     <div class="card-body p-0">
@@ -109,7 +138,7 @@ $canCreate = in_array($role, ['admin', 'tecnico'], true);
             <tbody>
                 <?php if (empty($tickets)): ?>
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">No hay tickets disponibles</td>
+                        <td colspan="7" class="text-center py-4 text-muted">No hay tickets disponibles con esos filtros</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($tickets as $t): ?>

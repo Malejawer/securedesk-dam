@@ -88,7 +88,102 @@ switch ($page) {
  
     case 'home':
         requireAuth();
+
         $title = 'Home - SecureDesk DAM';
+
+        $user = currentUser();
+        $currentUserId = is_array($user) ? (int)($user['id'] ?? 0) : 0;
+
+        // Auditoría ligera: acceso al dashboard
+        if ($currentUserId > 0) {
+            audit_log(
+                $qb,
+                $currentUserId,
+                'dashboard.view',
+                'dashboard',
+                null,
+                'Acceso al dashboard principal'
+            );
+        }
+
+        // =========================
+        // KPIs - Contadores
+        // =========================
+
+        $totalTickets = (int)$db->query("SELECT COUNT(*) FROM tickets")->fetchColumn();
+
+        $stmt = $db->query("
+            SELECT status, COUNT(*) as total
+            FROM tickets
+            GROUP BY status
+        ");
+        $statusCountsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $statusCounts = [
+            'nuevo' => 0,
+            'en_proceso' => 0,
+            'resuelto' => 0,
+        ];
+
+        foreach ($statusCountsRaw as $row) {
+            $status = (string)($row['status'] ?? '');
+            if (array_key_exists($status, $statusCounts)) {
+                $statusCounts[$status] = (int)$row['total'];
+            }
+        }
+
+        $stmt = $db->query("
+            SELECT priority, COUNT(*) as total
+            FROM tickets
+            GROUP BY priority
+        ");
+        $priorityCountsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $priorityCounts = [
+            'baja' => 0,
+            'media' => 0,
+            'alta' => 0,
+            'critica' => 0,
+        ];
+
+        foreach ($priorityCountsRaw as $row) {
+            $priority = (string)($row['priority'] ?? '');
+            if (array_key_exists($priority, $priorityCounts)) {
+                $priorityCounts[$priority] = (int)$row['total'];
+            }
+        }
+
+        $stmt = $db->query("
+            SELECT
+                CASE
+                    WHEN category IS NULL OR TRIM(category) = '' THEN 'otros'
+                    WHEN LOWER(TRIM(category)) = 'phishing' THEN 'phishing'
+                    WHEN LOWER(TRIM(category)) = 'malware' THEN 'malware'
+                    WHEN LOWER(TRIM(category)) = 'permisos' THEN 'permisos'
+                    ELSE 'otros'
+                END AS category_group,
+                COUNT(*) AS total
+            FROM tickets
+            GROUP BY category_group
+        ");
+        $categoryCountsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $categoryCounts = [
+            'phishing' => 0,
+            'malware' => 0,
+            'permisos' => 0,
+            'otros' => 0,
+        ];
+
+        foreach ($categoryCountsRaw as $row) {
+            $category = (string)($row['category_group'] ?? '');
+            if (array_key_exists($category, $categoryCounts)) {
+                $categoryCounts[$category] = (int)$row['total'];
+            }
+        }
+
+        $lastUpdate = date('Y-m-d H:i:s');
+
         ob_start();
         require __DIR__ . '/../views/home_view.php';
         $content = ob_get_clean();
@@ -96,31 +191,61 @@ switch ($page) {
  
     case 'tickets':
         requireRole(['admin', 'tecnico', 'lector']);
- 
+
         $title = 'Tickets - SecureDesk DAM';
- 
+
         $statusFilter = $_GET['status'] ?? null;
         $priorityFilter = $_GET['priority'] ?? null;
- 
+        $assignedFilter = $_GET['assigned'] ?? null;
+        $searchRaw = trim((string)($_GET['q'] ?? ''));
+
         $allowedStatus = ['nuevo','en_proceso','resuelto'];
         $allowedPriority = ['baja','media','alta','critica'];
- 
+        $allowedAssigned = ['unassigned'];
+
         $conditions = [];
         $params = [];
- 
+
         if ($statusFilter && in_array($statusFilter, $allowedStatus, true)) {
             $conditions[] = 't.status = :status';
             $params[':status'] = $statusFilter;
         }
- 
+
         if ($priorityFilter && in_array($priorityFilter, $allowedPriority, true)) {
             $conditions[] = 't.priority = :priority';
             $params[':priority'] = $priorityFilter;
         }
- 
+
+        if ($assignedFilter && in_array($assignedFilter, $allowedAssigned, true)) {
+            if ($assignedFilter === 'unassigned') {
+                $conditions[] = 't.assigned_to IS NULL';
+            }
+        }
+
+        $search = '';
+        if ($searchRaw !== '') {
+            $search = mb_substr($searchRaw, 0, 100);
+            $conditions[] = '(t.title LIKE :search OR t.description LIKE :search)';
+            $params[':search'] = '%' . $search . '%';
+
+            // Auditoría ligera: búsqueda
+            $user = currentUser();
+            $currentUserId = is_array($user) ? (int)($user['id'] ?? 0) : 0;
+
+            if ($currentUserId > 0) {
+                audit_log(
+                    $qb,
+                    $currentUserId,
+                    'ticket.search',
+                    'tickets',
+                    null,
+                    'Búsqueda: ' . $search
+                );
+            }
+        }
+
         $where = $conditions ? ('WHERE ' . implode(' AND ', $conditions)) : '';
- 
-        // JOIN + subquery -> prepare()
+
         $stmt = $db->prepare("
             SELECT 
                 t.*,
@@ -137,10 +262,10 @@ switch ($page) {
             $where
             ORDER BY t.created_at DESC
         ");
- 
+
         $stmt->execute($params);
         $tickets = $stmt->fetchAll(PDO::FETCH_ASSOC);
- 
+
         ob_start();
         require __DIR__ . '/../views/tickets_view.php';
         $content = ob_get_clean();
