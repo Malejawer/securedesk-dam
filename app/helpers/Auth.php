@@ -33,10 +33,12 @@ function csrf_validate(?string $token): bool
     if (!is_string($token) || $token === '') {
         return false;
     }
+
     $sessionToken = $_SESSION['csrf_token'] ?? '';
     if (!is_string($sessionToken) || $sessionToken === '') {
         return false;
     }
+
     return hash_equals($sessionToken, $token);
 }
 
@@ -68,7 +70,64 @@ function requireAuth(): void
 }
 
 /**
- * Protege rutas por rol.
+ * Matriz de permisos por rol.
+ */
+function rolePermissions(): array
+{
+    return [
+        'admin' => [
+            'dashboard.view',
+            'tickets.view',
+            'tickets.create',
+            'tickets.edit',
+            'comments.create',
+            'attachments.upload',
+            'attachments.download',
+            'reports.export',
+            'audit.view',
+            'users.manage',
+            'database.update',
+        ],
+        'tecnico' => [
+            'dashboard.view',
+            'tickets.view',
+            'tickets.create',
+            'tickets.edit',
+            'comments.create',
+            'attachments.upload',
+            'attachments.download',
+            'reports.export',
+        ],
+        'lector' => [
+            'dashboard.view',
+            'tickets.view',
+            'attachments.download',
+        ],
+    ];
+}
+
+/**
+ * Comprueba si un usuario tiene un permiso concreto.
+ */
+function userCan(?array $user, string $permission): bool
+{
+    if (!is_array($user)) {
+        return false;
+    }
+
+    $role = (string)($user['role'] ?? '');
+    if ($role === '') {
+        return false;
+    }
+
+    $matrix = rolePermissions();
+    $permissions = $matrix[$role] ?? [];
+
+    return in_array($permission, $permissions, true);
+}
+
+/**
+ * Protege rutas por rol legacy.
  */
 function requireRole(array $roles): void
 {
@@ -85,11 +144,26 @@ function requireRole(array $roles): void
 }
 
 /**
+ * Protege rutas por permiso.
+ */
+function requirePermission(string $permission): void
+{
+    requireAuth();
+
+    $user = currentUser();
+    if (!userCan($user, $permission)) {
+        setFlash('danger', 'No tienes permisos para acceder a esta sección.');
+        header('Location: ?page=home');
+        exit;
+    }
+}
+
+/**
  * Atajo: solo admin.
  */
 function requireAdmin(): void
 {
-    requireRole(['admin']);
+    requirePermission('audit.view');
 }
 
 /**
@@ -99,7 +173,7 @@ function setFlash(string $type, string $message): void
 {
     $_SESSION['flash'] = [
         'type' => $type,
-        'message' => $message
+        'message' => $message,
     ];
 }
 
@@ -142,7 +216,7 @@ function handleLogin(QueryBuilder $qb): array
     $data = [
         'error' => '',
         'success' => '',
-        'oldUsername' => ''
+        'oldUsername' => '',
     ];
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -182,19 +256,30 @@ function handleLogin(QueryBuilder $qb): array
     }
 
     // =========================
+    // Política de contraseña
+    // =========================
+    if (mb_strlen($password) < 8) {
+        $data['error'] = 'La contraseña debe tener al menos 8 caracteres.';
+        return $data;
+    }
+
+    if (!preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+        $data['error'] = 'La contraseña debe contener letras y números.';
+        return $data;
+    }
+
+    // =========================
     // Limitación de intentos
     // =========================
-    // Parámetros de política
     $MAX_ATTEMPTS = 5;
     $WINDOW_MINUTES = 5;
     $LOCK_MINUTES = 5;
 
-    // IP del cliente
     $ip = $_SERVER['REMOTE_ADDR'] ?? null;
     $ip = (is_string($ip) ? $ip : '');
 
     $attemptRow = $qb->table('login_attempts')
-        ->select(['id','attempts','last_attempt_at','locked_until'])
+        ->select(['id', 'attempts', 'last_attempt_at', 'locked_until'])
         ->where('username', '=', $username)
         ->where('ip', '=', $ip)
         ->first();
@@ -208,13 +293,13 @@ function handleLogin(QueryBuilder $qb): array
                 $lockedDT = new DateTimeImmutable($lockedUntil, new DateTimeZone('UTC'));
                 if ($lockedDT > $now) {
                     $diff = $lockedDT->getTimestamp() - $now->getTimestamp();
-                    $minsLeft = ceil($diff / 60);
+                    $minsLeft = (int)ceil($diff / 60);
                     $data['error'] = "Cuenta bloqueada temporalmente. Intenta de nuevo en {$minsLeft} minuto(s).";
                     audit_log($qb, null, 'auth.login_blocked', 'users', null, "Login bloqueado para {$username} desde IP {$ip}");
                     return $data;
                 }
             } catch (Exception $e) {
-                // si parse falla, ignoramos bloqueo y continuamos
+                // ignorar
             }
         }
     }
@@ -235,10 +320,10 @@ function handleLogin(QueryBuilder $qb): array
                         ->update([
                             'attempts' => 0,
                             'last_attempt_at' => null,
-                            'locked_until' => null
+                            'locked_until' => null,
                         ]);
                 } catch (Throwable $_) {
-                    // ignorar; no crítico
+                    // no crítico
                 }
             }
         }
@@ -293,7 +378,7 @@ function handleLogin(QueryBuilder $qb): array
                     ->update([
                         'attempts' => $attempts,
                         'last_attempt_at' => $now->format('Y-m-d H:i:s'),
-                        'locked_until' => $lockedUntilStr
+                        'locked_until' => $lockedUntilStr,
                     ]);
             } catch (Throwable $_) {
                 if (isset($GLOBALS['db']) && $GLOBALS['db'] instanceof PDO) {
@@ -303,7 +388,7 @@ function handleLogin(QueryBuilder $qb): array
                         ':attempts' => $attempts,
                         ':last' => $now->format('Y-m-d H:i:s'),
                         ':locked' => $lockedUntilStr,
-                        ':id' => (int)$attemptRow['id']
+                        ':id' => (int)$attemptRow['id'],
                     ]);
                 }
             }
@@ -311,25 +396,25 @@ function handleLogin(QueryBuilder $qb): array
             audit_log($qb, null, 'auth.lock', 'users', null, "Usuario {$username} bloqueado tras {$attempts} intentos desde IP {$ip}");
             $data['error'] = "Demasiados intentos. Cuenta bloqueada temporalmente por {$LOCK_MINUTES} minutos.";
             return $data;
-        } else {
-            try {
-                $qb->table('login_attempts')
-                    ->where('id', '=', (int)$attemptRow['id'])
-                    ->update([
-                        'attempts' => $attempts,
-                        'last_attempt_at' => $now->format('Y-m-d H:i:s'),
-                        'locked_until' => null
-                    ]);
-            } catch (Throwable $_) {
-                if (isset($GLOBALS['db']) && $GLOBALS['db'] instanceof PDO) {
-                    $pdo = $GLOBALS['db'];
-                    $stmt = $pdo->prepare("UPDATE login_attempts SET attempts = :attempts, last_attempt_at = :last WHERE id = :id");
-                    $stmt->execute([
-                        ':attempts' => $attempts,
-                        ':last' => $now->format('Y-m-d H:i:s'),
-                        ':id' => (int)$attemptRow['id']
-                    ]);
-                }
+        }
+
+        try {
+            $qb->table('login_attempts')
+                ->where('id', '=', (int)$attemptRow['id'])
+                ->update([
+                    'attempts' => $attempts,
+                    'last_attempt_at' => $now->format('Y-m-d H:i:s'),
+                    'locked_until' => null,
+                ]);
+        } catch (Throwable $_) {
+            if (isset($GLOBALS['db']) && $GLOBALS['db'] instanceof PDO) {
+                $pdo = $GLOBALS['db'];
+                $stmt = $pdo->prepare("UPDATE login_attempts SET attempts = :attempts, last_attempt_at = :last WHERE id = :id");
+                $stmt->execute([
+                    ':attempts' => $attempts,
+                    ':last' => $now->format('Y-m-d H:i:s'),
+                    ':id' => (int)$attemptRow['id'],
+                ]);
             }
         }
     } else {
@@ -339,7 +424,7 @@ function handleLogin(QueryBuilder $qb): array
                 'ip' => $ip,
                 'attempts' => 1,
                 'last_attempt_at' => $now->format('Y-m-d H:i:s'),
-                'locked_until' => null
+                'locked_until' => null,
             ]);
         } catch (Throwable $_) {
             if (isset($GLOBALS['db']) && $GLOBALS['db'] instanceof PDO) {
@@ -349,7 +434,7 @@ function handleLogin(QueryBuilder $qb): array
                     ':username' => $username,
                     ':ip' => $ip,
                     ':attempts' => 1,
-                    ':last' => $now->format('Y-m-d H:i:s')
+                    ':last' => $now->format('Y-m-d H:i:s'),
                 ]);
             }
         }

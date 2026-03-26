@@ -1,8 +1,10 @@
 <?php
 $user = currentUser();
-$role = (string)($user['role'] ?? '');
-$canEdit = in_array($role, ['admin', 'tecnico'], true);
-$canExport = in_array($role, ['admin', 'tecnico'], true);
+
+$canEdit = userCan($user, 'tickets.edit');
+$canExport = userCan($user, 'reports.export');
+$canUploadAttachments = userCan($user, 'attachments.upload');
+$canCreateComments = userCan($user, 'comments.create');
 
 $allowedStatus = ['nuevo','en_proceso','resuelto'];
 $allowedPriority = ['baja','media','alta','critica'];
@@ -31,12 +33,10 @@ $ticketPriorityRaw = (string)($ticket['priority'] ?? '');
 $statusLabel = $formatValue($ticketStatusRaw);
 $priorityLabel = $formatValue($ticketPriorityRaw);
 
-// URLs de exportación para este ticket
 $baseQs = function(array $extra = []) use ($ticket) {
     $params = array_merge(['id' => (int)$ticket['id']], $extra);
     return '?' . http_build_query(array_merge(['page' => 'export_ticket'], $params));
 };
-$csvUrl  = $baseQs(['format' => 'csv']);
 $htmlUrl = $baseQs(['format' => 'html']);
 $pdfUrl  = $baseQs(['format' => 'pdf']);
 ?>
@@ -52,27 +52,24 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
     <div class="d-flex gap-2 align-items-center">
         <a href="?page=tickets" class="btn btn-outline-secondary">Volver</a>
 
-        <!-- Botones de exportación del ticket -->
         <?php if ($canExport): ?>
-        <!-- Botones de exportación del ticket -->
-        <div class="btn-group" role="group" aria-label="Exportar ticket">
-            <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
-            class="btn btn-outline-secondary"
-            title="Exportar ticket a HTML">
-                Exportar HTML
-            </a>
+            <div class="btn-group" role="group" aria-label="Exportar ticket">
+                <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
+                   class="btn btn-outline-secondary"
+                   title="Exportar ticket a HTML">
+                    Exportar HTML
+                </a>
 
-            <a href="<?= htmlspecialchars($pdfUrl, ENT_QUOTES, 'UTF-8') ?>"
-            class="btn btn-outline-secondary"
-            title="Exportar ticket a PDF">
-                Exportar PDF
-            </a>
-        </div>
+                <a href="<?= htmlspecialchars($pdfUrl, ENT_QUOTES, 'UTF-8') ?>"
+                   class="btn btn-outline-secondary"
+                   title="Exportar ticket a PDF">
+                    Exportar PDF
+                </a>
+            </div>
         <?php endif; ?>
     </div>
 </div>
 
-<!-- Información + Edición -->
 <div class="row g-4">
     <div class="col-12 col-lg-5">
         <div class="card shadow-sm border-0">
@@ -80,32 +77,32 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
 
                 <div class="mb-3">
                     <div class="text-muted small">Creado por</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['created_username'] ?? '—') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($ticket['created_username'] ?? '—', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
                 <div class="mb-3">
                     <div class="text-muted small">Asignado</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['assigned_username'] ?? '—') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($ticket['assigned_username'] ?? '—', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
                 <div class="mb-3">
                     <div class="text-muted small">Estado</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($statusLabel ?? '') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($statusLabel ?? '', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
                 <div class="mb-3">
                     <div class="text-muted small">Prioridad</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($priorityLabel ?? '') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($priorityLabel ?? '', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
                 <div class="mb-3">
                     <div class="text-muted small">Creado el</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['created_at'] ?? '') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($ticket['created_at'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
                 <div>
                     <div class="text-muted small">Actualizado el</div>
-                    <div class="fw-semibold"><?= htmlspecialchars($ticket['updated_at'] ?? '—') ?></div>
+                    <div class="fw-semibold"><?= htmlspecialchars($ticket['updated_at'] ?? '—', ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
 
             </div>
@@ -124,7 +121,7 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
 
                         <div class="col-12">
                             <label class="form-label">Descripción</label>
-                            <textarea name="description" class="form-control" rows="5"><?= htmlspecialchars($ticket['description'] ?? '') ?></textarea>
+                            <textarea name="description" class="form-control" rows="5"><?= htmlspecialchars($ticket['description'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
                         </div>
 
                         <div class="col-md-4">
@@ -156,7 +153,7 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
                                 <?php foreach ($assignees as $a): ?>
                                     <option value="<?= (int)$a['id'] ?>"
                                         <?= ((string)($ticket['assigned_to'] ?? '') === (string)$a['id']) ? 'selected' : '' ?>>
-                                        <?= htmlspecialchars($a['username']) ?>
+                                        <?= htmlspecialchars($a['username'], ENT_QUOTES, 'UTF-8') ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -168,7 +165,7 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
                     </form>
                 <?php else: ?>
                     <div class="p-3 bg-light border rounded-3">
-                        <?= nl2br(htmlspecialchars($ticket['description'] ?? '')) ?>
+                        <?= nl2br(htmlspecialchars($ticket['description'] ?? '', ENT_QUOTES, 'UTF-8')) ?>
                     </div>
                 <?php endif; ?>
 
@@ -177,35 +174,34 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
     </div>
 </div>
 
-<!-- Adjuntos -->
 <div class="card shadow-sm border-0 mt-4">
     <div class="card-body p-4">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
             <h2 class="h5 fw-bold mb-0">Adjuntos</h2>
-            <?php if ($canEdit): ?>
-                <span class="badge bg-light text-dark border">Solo Admin/Técnico</span>
+            <?php if ($canUploadAttachments): ?>
+                <span class="badge bg-light text-dark border">Solo Admin/Técnico para subir</span>
+            <?php else: ?>
+                <span class="badge bg-light text-dark border">Solo lectura</span>
             <?php endif; ?>
         </div>
 
-        <?php if ($canEdit): ?>
+        <?php if ($canUploadAttachments): ?>
             <form method="POST"
-                action="?page=attachment_upload"
-                enctype="multipart/form-data"
-                class="row g-2 align-items-center mb-3">
+                  action="?page=attachment_upload"
+                  enctype="multipart/form-data"
+                  class="row g-2 align-items-center mb-3">
 
                 <?= csrf_field() ?>
                 <input type="hidden" name="ticket_id" value="<?= (int)$ticket['id'] ?>">
 
                 <div class="col-md-9">
-                    <input type="file" name="attachment" class="form-control" required>
+                    <input type="file" name="attachment" class="form-control" accept=".pdf,.png,.txt" required>
+                    <div class="form-text">Formatos permitidos: PDF, PNG y TXT. Tamaño máximo: 10MB.</div>
                 </div>
 
                 <div class="col-md-3 text-md-end">
-                    <button class="btn btn-primary">
-                        Subir evidencia
-                    </button>
+                    <button class="btn btn-primary">Subir evidencia</button>
                 </div>
-
             </form>
         <?php endif; ?>
 
@@ -216,9 +212,9 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
                 <?php foreach ($attachments as $a): ?>
                     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <div>
-                            <div class="fw-semibold"><?= htmlspecialchars($a['original_name']) ?></div>
+                            <div class="fw-semibold"><?= htmlspecialchars($a['original_name'], ENT_QUOTES, 'UTF-8') ?></div>
                             <?php if (isset($a['size_bytes'])): ?>
-                                <div class="text-muted small"><?= htmlspecialchars(formatBytes((int)$a['size_bytes'])) ?></div>
+                                <div class="text-muted small"><?= htmlspecialchars(formatBytes((int)$a['size_bytes']), ENT_QUOTES, 'UTF-8') ?></div>
                             <?php endif; ?>
                         </div>
                         <a class="btn btn-sm btn-outline-primary"
@@ -243,9 +239,8 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
                 Todavía no hay cambios registrados en este ticket.
             </div>
         <?php else: ?>
-
             <?php
-            $formatValue = function (string $value): string {
+            $formatValueChange = function (string $value): string {
                 $value = str_replace('_', ' ', $value);
                 return ucfirst($value);
             };
@@ -254,23 +249,23 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
             <div class="list-group list-group-flush">
                 <?php foreach ($changes as $ch): ?>
                     <?php
-                        $who = (string)($ch['username'] ?? 'Usuario');
-                        $when = (string)($ch['created_at'] ?? '');
-                        $field = (string)($ch['field'] ?? '');
-                        $old = (string)($ch['old_value'] ?? '');
-                        $new = (string)($ch['new_value'] ?? '');
+                    $who = (string)($ch['username'] ?? 'Usuario');
+                    $when = (string)($ch['created_at'] ?? '');
+                    $field = (string)($ch['field'] ?? '');
+                    $old = (string)($ch['old_value'] ?? '');
+                    $new = (string)($ch['new_value'] ?? '');
 
-                        $label = match ($field) {
-                            'status' => 'Estado',
-                            'priority' => 'Prioridad',
-                            'assigned_to' => 'Asignado a',
-                            default => 'Campo',
-                        };
+                    $label = match ($field) {
+                        'status' => 'Estado',
+                        'priority' => 'Prioridad',
+                        'assigned_to' => 'Asignado a',
+                        default => 'Campo',
+                    };
 
-                        if ($field === 'status' || $field === 'priority') {
-                            $old = $formatValue($old);
-                            $new = $formatValue($new);
-                        }
+                    if ($field === 'status' || $field === 'priority') {
+                        $old = $formatValueChange($old);
+                        $new = $formatValueChange($new);
+                    }
                     ?>
                     <div class="list-group-item px-0 py-3">
                         <div class="d-flex flex-wrap justify-content-between gap-2">
@@ -303,12 +298,10 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
                     </div>
                 <?php endforeach; ?>
             </div>
-
         <?php endif; ?>
     </div>
 </div>
 
-<!-- COMENTARIOS -->
 <div class="card shadow-sm border-0 mt-5">
     <div class="card-body p-4">
 
@@ -318,49 +311,47 @@ $pdfUrl  = $baseQs(['format' => 'pdf']);
             <div class="text-muted mb-3">Todavía no hay comentarios en este ticket.</div>
         <?php else: ?>
             <div class="d-flex flex-column gap-3 mb-4">
-            <?php foreach ($comments as $c): ?>
-                <?php
+                <?php foreach ($comments as $c): ?>
+                    <?php
                     $username = (string)($c['username'] ?? 'Usuario');
                     $initial = mb_strtoupper(mb_substr($username, 0, 1));
                     $createdAt = (string)($c['created_at'] ?? '');
-                ?>
-                <div class="d-flex gap-3">
-                    <!-- Avatar -->
-                    <div class="flex-shrink-0">
-                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center shadow-sm"
-                            style="width: 40px; height: 40px; font-weight: 700;">
-                            <?= htmlspecialchars($initial, ENT_QUOTES, 'UTF-8') ?>
+                    ?>
+                    <div class="d-flex gap-3">
+                        <div class="flex-shrink-0">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center shadow-sm"
+                                 style="width: 40px; height: 40px; font-weight: 700;">
+                                <?= htmlspecialchars($initial, ENT_QUOTES, 'UTF-8') ?>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- Comment bubble -->
-                    <div class="flex-grow-1">
-                        <div class="card shadow-sm border-0">
-                            <div class="card-body p-3 p-md-4">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <span class="fw-semibold">
-                                            <?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8') ?>
-                                        </span>
+                        <div class="flex-grow-1">
+                            <div class="card shadow-sm border-0">
+                                <div class="card-body p-3 p-md-4">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="fw-semibold">
+                                                <?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8') ?>
+                                            </span>
+                                        </div>
+
+                                        <div class="text-muted small">
+                                            <?= htmlspecialchars($createdAt, ENT_QUOTES, 'UTF-8') ?>
+                                        </div>
                                     </div>
 
-                                    <div class="text-muted small">
-                                        <?= htmlspecialchars($createdAt, ENT_QUOTES, 'UTF-8') ?>
+                                    <div class="text-body">
+                                        <?= nl2br(htmlspecialchars((string)($c['comment'] ?? ''), ENT_QUOTES, 'UTF-8')) ?>
                                     </div>
-                                </div>
-
-                                <div class="text-body">
-                                    <?= nl2br(htmlspecialchars((string)($c['comment'] ?? ''), ENT_QUOTES, 'UTF-8')) ?>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            <?php endforeach; ?>
-        </div>
+                <?php endforeach; ?>
+            </div>
         <?php endif; ?>
 
-        <?php if ($canEdit): ?>
+        <?php if ($canCreateComments): ?>
             <form method="POST" action="?page=ticket_comment_add">
                 <?= csrf_field() ?>
                 <input type="hidden" name="ticket_id" value="<?= (int)$ticket['id'] ?>">

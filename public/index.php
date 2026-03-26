@@ -2,6 +2,34 @@
 declare(strict_types=1);
  
 session_start();
+
+set_exception_handler(function ($e) {
+    http_response_code(500);
+
+    $message = 'Ha ocurrido un error inesperado.';
+    
+    // En desarrollo puedes mostrar más info (opcional)
+    if (ini_get('display_errors')) {
+        $message .= ' ' . $e->getMessage();
+    }
+
+    echo '<!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Error</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-light d-flex align-items-center justify-content-center" style="min-height:100vh;">
+        <div class="card shadow p-4 text-center" style="max-width:500px;">
+            <h1 class="h4 mb-3 text-danger">Error</h1>
+            <p class="text-muted">' . htmlspecialchars($message, ENT_QUOTES, "UTF-8") . '</p>
+            <a href="?page=home" class="btn btn-primary mt-3">Volver al inicio</a>
+        </div>
+    </body>
+    </html>';
+    exit;
+});
  
 require_once __DIR__ . '/../app/database/Database.php';
 require_once __DIR__ . '/../app/services/HealthCheckService.php';
@@ -41,7 +69,7 @@ if (!is_dir($uploadsDir)) {
 switch ($page) {
  
     case 'db_update':
-        requireAdmin();
+        requirePermission('database.update');
  
         // ✅ Ruta correcta en tu proyecto
         require_once __DIR__ . '/../app/database/db_init.php';
@@ -87,7 +115,7 @@ switch ($page) {
         exit;
  
     case 'home':
-        requireAuth();
+        requirePermission('dashboard.view');
 
         $title = 'Home - SecureDesk DAM';
 
@@ -190,7 +218,7 @@ switch ($page) {
         break;
  
     case 'tickets':
-        requireRole(['admin', 'tecnico', 'lector']);
+        requirePermission('tickets.view');
 
         $title = 'Tickets - SecureDesk DAM';
 
@@ -272,19 +300,19 @@ switch ($page) {
         break;
  
     case 'ticket_new':
-        requireRole(['admin', 'tecnico']);
- 
+        requirePermission('tickets.create');
+
         $title = 'Nuevo ticket - SecureDesk DAM';
- 
+
         $user = currentUser();
         $currentUserId = (int)($user['id'] ?? 0);
- 
+
         $assignees = $qb->table('users')
             ->select(['id', 'username', 'role'])
             ->whereIn('role', ['admin', 'tecnico'])
             ->orderBy('username', 'ASC')
             ->get();
- 
+
         $errors = [];
         $old = [
             'title' => '',
@@ -293,7 +321,7 @@ switch ($page) {
             'priority' => 'media',
             'assigned_to' => '',
         ];
- 
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // CSRF
             if (!csrf_validate($_POST['csrf_token'] ?? '')) {
@@ -307,40 +335,40 @@ switch ($page) {
             $old['category'] = trim($_POST['category'] ?? '');
             $old['priority'] = $_POST['priority'] ?? 'media';
             $old['assigned_to'] = $_POST['assigned_to'] ?? '';
- 
+
             if ($old['title'] === '') {
                 $errors['title'] = 'El título es obligatorio.';
             }
- 
-            $allowedPriority = ['baja','media','alta','critica'];
+
+            $allowedPriority = ['baja', 'media', 'alta', 'critica'];
             if (!in_array($old['priority'], $allowedPriority, true)) {
                 $old['priority'] = 'media';
             }
- 
+
             $assignedTo = null;
             if ($old['assigned_to'] !== '') {
                 if (!ctype_digit($old['assigned_to'])) {
                     $errors['assigned_to'] = 'Asignación no válida.';
                 } else {
                     $assignedTo = (int)$old['assigned_to'];
- 
+
                     $assigneeOk = $qb->table('users')
                         ->select(['id'])
                         ->where('id', '=', $assignedTo)
                         ->whereIn('role', ['admin', 'tecnico'])
                         ->first();
- 
+
                     if (!$assigneeOk) {
                         $errors['assigned_to'] = 'Solo se puede asignar a Admin o Técnico.';
                     }
                 }
             }
- 
+
             $createdBy = $currentUserId;
             if ($createdBy <= 0) {
                 $errors['general'] = 'No se pudo identificar el usuario autenticado.';
             }
- 
+
             if (!$errors) {
                 $newTicketId = $qb->table('tickets')->insert([
                     'title' => $old['title'],
@@ -352,11 +380,18 @@ switch ($page) {
                     'assigned_to' => $assignedTo,
                     'updated_at' => null,
                 ]);
- 
+
                 // Auditoría: crear ticket
                 $u = currentUser();
                 $uid = is_array($u) ? (int)($u['id'] ?? 0) : 0;
-                audit_log($qb, $uid > 0 ? $uid : null, 'ticket.create', 'tickets', $newTicketId, 'Título: ' . $old['title']);
+                audit_log(
+                    $qb,
+                    $uid > 0 ? $uid : null,
+                    'ticket.create',
+                    'tickets',
+                    $newTicketId,
+                    'Título: ' . $old['title']
+                );
 
                 // =========================
                 // Adjunto opcional al crear ticket
@@ -364,15 +399,12 @@ switch ($page) {
                 $attachmentWarning = null;
 
                 if (isset($_FILES['attachment']) && is_array($_FILES['attachment'])) {
-
                     $file = $_FILES['attachment'];
 
                     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-
                         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
                             $attachmentWarning = 'Ticket creado, pero hubo un error subiendo el adjunto.';
                         } else {
-
                             $originalName = (string)($file['name'] ?? 'archivo');
                             $sizeBytes = (int)($file['size'] ?? 0);
 
@@ -380,39 +412,66 @@ switch ($page) {
                             if ($sizeBytes <= 0 || $sizeBytes > $maxBytes) {
                                 $attachmentWarning = 'Ticket creado, pero el adjunto es demasiado grande (máx. 10MB).';
                             } else {
+                                $allowedExtensions = ['pdf', 'png', 'txt'];
+                                $allowedMimeTypes = [
+                                    'pdf' => ['application/pdf'],
+                                    'png' => ['image/png'],
+                                    'txt' => ['text/plain'],
+                                ];
 
-                                $ext = pathinfo($originalName, PATHINFO_EXTENSION);
-                                $ext = $ext ? ('.' . preg_replace('/[^a-zA-Z0-9]/', '', $ext)) : '';
+                                $extension = strtolower((string)pathinfo($originalName, PATHINFO_EXTENSION));
 
-                                $storedName = bin2hex(random_bytes(16)) . '_' . time() . $ext;
-                                $destPath = $uploadsDir . DIRECTORY_SEPARATOR . $storedName;
-
-                                if (!move_uploaded_file((string)$file['tmp_name'], $destPath)) {
-                                    $attachmentWarning = 'Ticket creado, pero no se pudo guardar el adjunto.';
+                                if ($extension === '' || !in_array($extension, $allowedExtensions, true)) {
+                                    $attachmentWarning = 'Ticket creado, pero el tipo de adjunto no está permitido. Solo PDF, PNG y TXT.';
                                 } else {
+                                    $tmpPath = (string)($file['tmp_name'] ?? '');
 
-                                    $qb->table('ticket_attachments')->insert([
-                                        'ticket_id'     => $newTicketId,
-                                        'stored_name'   => $storedName,
-                                        'original_name' => $originalName,
-                                        'size_bytes'    => $sizeBytes,
-                                        'uploaded_by'   => $currentUserId > 0 ? $currentUserId : null,
-                                    ]);
+                                    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+                                        $attachmentWarning = 'Ticket creado, pero el archivo temporal no es válido.';
+                                    } else {
+                                        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                                        $mimeType = $finfo ? (string)finfo_file($finfo, $tmpPath) : '';
+                                        if ($finfo) {
+                                            finfo_close($finfo);
+                                        }
 
-                                    audit_log(
-                                        $qb,
-                                        $currentUserId > 0 ? $currentUserId : null,
-                                        'attachment.upload',
-                                        'tickets',
-                                        $newTicketId,
-                                        'Archivo: ' . $originalName
-                                    );
+                                        $validMimesForExtension = $allowedMimeTypes[$extension] ?? [];
+
+                                        if ($mimeType === '' || !in_array($mimeType, $validMimesForExtension, true)) {
+                                            $attachmentWarning = 'Ticket creado, pero el contenido del adjunto no coincide con un tipo permitido.';
+                                        } else {
+                                            $safeExt = '.' . preg_replace('/[^a-zA-Z0-9]/', '', $extension);
+                                            $storedName = bin2hex(random_bytes(16)) . '_' . time() . $safeExt;
+                                            $destPath = $uploadsDir . DIRECTORY_SEPARATOR . $storedName;
+
+                                            if (!move_uploaded_file($tmpPath, $destPath)) {
+                                                $attachmentWarning = 'Ticket creado, pero no se pudo guardar el adjunto.';
+                                            } else {
+                                                $qb->table('ticket_attachments')->insert([
+                                                    'ticket_id'     => $newTicketId,
+                                                    'stored_name'   => $storedName,
+                                                    'original_name' => $originalName,
+                                                    'size_bytes'    => $sizeBytes,
+                                                    'uploaded_by'   => $currentUserId > 0 ? $currentUserId : null,
+                                                ]);
+
+                                                audit_log(
+                                                    $qb,
+                                                    $currentUserId > 0 ? $currentUserId : null,
+                                                    'attachment.upload',
+                                                    'tickets',
+                                                    $newTicketId,
+                                                    'Archivo: ' . $originalName
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
- 
+
                 if ($attachmentWarning !== null) {
                     setFlash('warning', $attachmentWarning);
                 } else {
@@ -423,14 +482,14 @@ switch ($page) {
                 exit;
             }
         }
- 
+
         ob_start();
         require __DIR__ . '/../views/ticket_new_view.php';
         $content = ob_get_clean();
         break;
  
     case 'ticket':
-        requireRole(['admin', 'tecnico', 'lector']);
+        requirePermission('tickets.view');
  
         $idRaw = $_GET['id'] ?? '';
         if (!ctype_digit((string)$idRaw)) {
@@ -463,7 +522,7 @@ switch ($page) {
         $ticket = $stmt->fetch(PDO::FETCH_ASSOC);
  
         if (!$ticket) {
-            setFlash('danger', 'El ticket no existe.');
+            setFlash('danger', 'El ticket no existe o ha sido eliminado.');
             header('Location: ?page=tickets');
             exit;
         }
@@ -524,7 +583,7 @@ switch ($page) {
                 exit;
             }
 
-            if (!$canEdit) {
+            if (!userCan($user, 'tickets.edit')) {
                 setFlash('danger', 'No tienes permisos para editar este ticket.');
                 header('Location: ?page=ticket&id=' . $ticketId);
                 exit;
@@ -671,7 +730,7 @@ switch ($page) {
         break;
  
     case 'ticket_comment_add':
-        requireRole(['admin', 'tecnico']);
+        requirePermission('comments.create');
  
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             header('Location: ?page=tickets');
@@ -735,7 +794,7 @@ switch ($page) {
         exit;
  
     case 'attachment_upload':
-        requireRole(['admin', 'tecnico']);
+        requirePermission('attachments.upload');
  
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             header('Location: ?page=tickets');
@@ -785,17 +844,51 @@ switch ($page) {
  
         $originalName = (string)($file['name'] ?? 'archivo');
         $sizeBytes = (int)($file['size'] ?? 0);
- 
+
         $maxBytes = 10 * 1024 * 1024;
         if ($sizeBytes <= 0 || $sizeBytes > $maxBytes) {
             setFlash('danger', 'El archivo es demasiado grande (máx. 10MB).');
             header('Location: ?page=ticket&id=' . $ticketId);
             exit;
         }
- 
-        $ext = pathinfo($originalName, PATHINFO_EXTENSION);
-        $ext = $ext ? ('.' . preg_replace('/[^a-zA-Z0-9]/', '', $ext)) : '';
-        $storedName = bin2hex(random_bytes(16)) . '_' . time() . $ext;
+
+        // Validación de tipo permitido
+        $allowedExtensions = ['pdf', 'png', 'txt'];
+        $allowedMimeTypes = [
+            'pdf' => ['application/pdf'],
+            'png' => ['image/png'],
+            'txt' => ['text/plain'],
+        ];
+
+        $extension = strtolower((string)pathinfo($originalName, PATHINFO_EXTENSION));
+        if ($extension === '' || !in_array($extension, $allowedExtensions, true)) {
+            setFlash('danger', 'Tipo de archivo no permitido. Solo se admiten PDF, PNG y TXT.');
+            header('Location: ?page=ticket&id=' . $ticketId);
+            exit;
+        }
+
+        $tmpPath = (string)($file['tmp_name'] ?? '');
+        if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+            setFlash('danger', 'Archivo temporal no válido.');
+            header('Location: ?page=ticket&id=' . $ticketId);
+            exit;
+        }
+
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo ? (string)finfo_file($finfo, $tmpPath) : '';
+        if ($finfo) {
+            finfo_close($finfo);
+        }
+
+        $validMimesForExtension = $allowedMimeTypes[$extension] ?? [];
+        if ($mimeType === '' || !in_array($mimeType, $validMimesForExtension, true)) {
+            setFlash('danger', 'El contenido del archivo no coincide con un tipo permitido.');
+            header('Location: ?page=ticket&id=' . $ticketId);
+            exit;
+        }
+
+        $safeExt = '.' . preg_replace('/[^a-zA-Z0-9]/', '', $extension);
+        $storedName = bin2hex(random_bytes(16)) . '_' . time() . $safeExt;
         $destPath = $uploadsDir . DIRECTORY_SEPARATOR . $storedName;
  
         if (!move_uploaded_file($file['tmp_name'], $destPath)) {
@@ -823,7 +916,7 @@ switch ($page) {
         exit;
  
     case 'attachment_download':
-        requireAuth();
+        requirePermission('attachments.download');
  
         $attIdRaw = $_GET['id'] ?? '';
         if (!ctype_digit((string)$attIdRaw)) {
@@ -866,12 +959,26 @@ switch ($page) {
         header('Content-Length: ' . filesize($path));
         header('Cache-Control: no-cache, must-revalidate');
         header('Pragma: no-cache');
+
+        $user = currentUser();
+        $currentUserId = is_array($user) ? (int)($user['id'] ?? 0) : 0;
+
+        if ($currentUserId > 0) {
+            audit_log(
+                $qb,
+                $currentUserId,
+                'attachment.download',
+                'attachments',
+                (int)$attachment['id'],
+                'Descarga de archivo: ' . ($attachment['original_name'] ?? '')
+            );
+        }
  
         readfile($path);
         exit;
  
     case 'audit':
-        requireAdmin();
+        requirePermission('audit.view');
 
         $title = 'Auditoría - SecureDesk DAM';
 
@@ -948,7 +1055,7 @@ switch ($page) {
         break;
 
     case 'export':
-        requireRole(['admin', 'tecnico']);
+        requirePermission('reports.export');
 
         $format = strtolower(trim((string)($_GET['format'] ?? 'csv')));
         if (!in_array($format, ['csv','html','pdf'], true)) {
@@ -1045,7 +1152,7 @@ switch ($page) {
     
     case 'export_ticket':
         // Exporta el detalle de un único ticket (CSV / HTML / PDF)
-        requireRole(['admin', 'tecnico']);
+        requirePermission('reports.export');
 
         // --- Validar id y formato ---
         $idRaw = $_GET['id'] ?? '';
@@ -1312,7 +1419,7 @@ switch ($page) {
     break;
 
     case 'users':
-        requireAdmin();
+        requirePermission('users.manage');
         $title = 'Usuarios - SecureDesk DAM';
         $content = '<h1>Gestión de usuarios</h1><p>Solo administradores.</p>';
         break;

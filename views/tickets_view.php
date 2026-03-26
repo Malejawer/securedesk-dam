@@ -1,7 +1,7 @@
 <?php
 $user = function_exists('currentUser') ? currentUser() : null;
-$role = is_array($user) ? ($user['role'] ?? null) : null;
-$canCreate = in_array($role, ['admin', 'tecnico'], true);
+$canCreate = userCan($user, 'tickets.create');
+$canExport = userCan($user, 'reports.export');
 $searchValue = (string)($_GET['q'] ?? '');
 ?>
 
@@ -27,30 +27,25 @@ $searchValue = (string)($_GET['q'] ?? '');
 
         $csvUrl  = '?page=export&format=csv'  . $qs();
         $htmlUrl = '?page=export&format=html' . $qs();
-        $pdfUrl  = '?page=export&format=pdf'  . $qs();
         ?>
 
         <?php if ($canCreate): ?>
             <a href="?page=ticket_new" class="btn btn-primary">+ Nuevo ticket</a>
         <?php endif; ?>
 
-        <?php
-        $canExport = in_array($role, ['admin', 'tecnico'], true);
-        ?>
-
         <?php if ($canExport): ?>
-        <div class="btn-group" role="group" aria-label="Exportar">
-            <a href="<?= htmlspecialchars($csvUrl, ENT_QUOTES, 'UTF-8') ?>"
-               class="btn btn-outline-secondary">
-                Exportar CSV
-            </a>
+            <div class="btn-group" role="group" aria-label="Exportar">
+                <a href="<?= htmlspecialchars($csvUrl, ENT_QUOTES, 'UTF-8') ?>"
+                   class="btn btn-outline-secondary">
+                    Exportar CSV
+                </a>
 
-            <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
-               class="btn btn-outline-secondary"
-               title="Exportar HTML">
-                Exportar HTML
-            </a>
-        </div>
+                <a href="<?= htmlspecialchars($htmlUrl, ENT_QUOTES, 'UTF-8') ?>"
+                   class="btn btn-outline-secondary"
+                   title="Exportar HTML">
+                    Exportar HTML
+                </a>
+            </div>
         <?php endif; ?>
     </div>
 </div>
@@ -155,16 +150,16 @@ $searchValue = (string)($_GET['q'] ?? '');
                             </td>
                             <td>
                                 <?php
-                                    $priority = $t['priority'] ?? '';
+                                $priority = $t['priority'] ?? '';
 
-                                    $priorityClasses = [
-                                        'baja'    => 'bg-success',
-                                        'media'   => 'bg-primary',
-                                        'alta'    => 'bg-warning text-dark',
-                                        'critica' => 'bg-danger',
-                                    ];
+                                $priorityClasses = [
+                                    'baja'    => 'bg-success',
+                                    'media'   => 'bg-primary',
+                                    'alta'    => 'bg-warning text-dark',
+                                    'critica' => 'bg-danger',
+                                ];
 
-                                    $class = $priorityClasses[$priority] ?? 'bg-secondary';
+                                $class = $priorityClasses[$priority] ?? 'bg-secondary';
                                 ?>
                                 <span class="badge <?= $class ?>">
                                     <?= htmlspecialchars(ucfirst($priority), ENT_QUOTES, 'UTF-8') ?>

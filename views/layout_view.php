@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($title ?? 'SecureDesk DAM', ENT_QUOTES, 'UTF-8') ?></title>
 
-    <!-- Bootstrap 5 (CDN) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <style>
@@ -26,27 +25,30 @@
             </button>
 
             <div class="collapse navbar-collapse" id="navMain">
-                <!-- IZQUIERDA: navegación principal -->
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <?php if (!function_exists('isLoggedIn') || !isLoggedIn()): ?>
                         <li class="nav-item"><a class="nav-link" href="?page=login">Login</a></li>
                     <?php else: ?>
-                        <li class="nav-item"><a class="nav-link" href="?page=home">Home</a></li>
-                        <li class="nav-item"><a class="nav-link" href="?page=tickets">Tickets</a></li>
+                        <?php $navUser = currentUser(); ?>
 
-                        <?php
-                            $user = function_exists('currentUser') ? currentUser() : null;
-                            $role = is_array($user) ? ($user['role'] ?? null) : null;
-                        ?>
+                        <?php if (userCan($navUser, 'dashboard.view')): ?>
+                            <li class="nav-item"><a class="nav-link" href="?page=home">Home</a></li>
+                        <?php endif; ?>
 
-                        <?php if ($role === 'admin'): ?>
+                        <?php if (userCan($navUser, 'tickets.view')): ?>
+                            <li class="nav-item"><a class="nav-link" href="?page=tickets">Tickets</a></li>
+                        <?php endif; ?>
+
+                        <?php if (userCan($navUser, 'users.manage')): ?>
                             <li class="nav-item"><a class="nav-link" href="?page=users">Usuarios</a></li>
+                        <?php endif; ?>
+
+                        <?php if (userCan($navUser, 'audit.view')): ?>
                             <li class="nav-item"><a class="nav-link" href="?page=audit">Auditoría</a></li>
                         <?php endif; ?>
                     <?php endif; ?>
                 </ul>
 
-                <!-- DERECHA: menú de usuario (pro) -->
                 <?php if (function_exists('isLoggedIn') && isLoggedIn() && function_exists('currentUser') && currentUser()): ?>
                     <?php $u = currentUser(); ?>
                     <div class="dropdown">
@@ -62,7 +64,7 @@
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><a class="dropdown-item" href="?page=account">Mi cuenta</a></li>
 
-                            <?php if (($u['role'] ?? '') === 'admin'): ?>
+                            <?php if (userCan($u, 'audit.view')): ?>
                                 <li><a class="dropdown-item" href="?page=audit">Auditoría</a></li>
                             <?php endif; ?>
 
@@ -94,7 +96,6 @@
     </footer>
 </div>
 
-<!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
